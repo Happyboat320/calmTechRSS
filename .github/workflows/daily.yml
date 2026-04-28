@@ -23,12 +23,18 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install -r requirements.txt "sentence-transformers>=2.7.0"
       - name: Generate digest
         env:
+          CUDA_VISIBLE_DEVICES: ""
+          OMP_NUM_THREADS: "4"
+          TOKENIZERS_PARALLELISM: "false"
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           SITE_BASE_URL: ${{ secrets.SITE_BASE_URL }}
-        run: python -m calmtechrss run --site-base-url "${SITE_BASE_URL:-https://example.com}"
+        run: python -m calmtechrss run --api-config config/api.example.yml --site-base-url "${SITE_BASE_URL:-https://example.com}"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

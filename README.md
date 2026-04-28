@@ -34,7 +34,7 @@ sources:
     weight: 1.5
 ```
 
-API、聊天模型和向量模型配置在 `config/api.yml`：
+API、聊天模型和向量模型配置在 `config/api.yml`。仓库只提交 `config/api.example.yml` 模板，真实 `config/api.yml` 会被 Git 忽略：
 
 ```yaml
 llm:
@@ -48,6 +48,12 @@ llm:
 
 embedding:
   model: intfloat/multilingual-e5-small
+  device: cpu
+  batch_size: 32
+  cpu_threads: 4
+
+pipeline:
+  max_workers: 4
 ```
 
 建议把密钥放在 `.env` 或运行环境中，不要直接写入仓库：
@@ -56,7 +62,7 @@ embedding:
 OPENAI_API_KEY=你的密钥
 ```
 
-如果没有配置 API key，程序会使用本地降级摘要，完整生成流程仍然可以运行。`sentence-transformers` 或模型不可用时，语义聚类会回退到确定性的本地哈希向量。
+如果没有配置 API key，程序会使用本地降级摘要，完整生成流程仍然可以运行。`sentence-transformers` 或模型不可用时，语义聚类会回退到确定性的本地哈希向量。GitHub Actions 环境默认按 CPU 运行 `intfloat/multilingual-e5-small`，并发抓取数默认是 4。
 
 ## 常用命令
 
@@ -88,7 +94,9 @@ pip install ".[embeddings]"
 
 ## 部署
 
-仓库包含 GitHub Actions 工作流，会每天运行一次生成任务，并把 `site/` 作为 GitHub Pages artifact 上传。部署前至少需要设置：
+仓库包含 GitHub Actions 工作流，会每天运行一次生成任务，并把 `site/` 作为 GitHub Pages artifact 上传。Actions 会安装 CPU 版 Torch 和 `sentence-transformers`，使用 `config/api.example.yml` 中的 `device: cpu`、`cpu_threads: 4` 和 `max_workers: 4`。
+
+部署前至少需要设置：
 
 - `OPENAI_API_KEY`：可选，不设置时使用本地降级摘要
 - `SITE_BASE_URL`：建议设置为实际站点地址，否则 RSS 链接会指向默认示例地址

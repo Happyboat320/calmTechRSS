@@ -36,7 +36,9 @@ class CoreTest(unittest.TestCase):
 
         self.assertEqual(config.llm.api_key_env, "OPENAI_API_KEY")
         self.assertTrue(config.llm.model)
-        self.assertTrue(config.embedding.model)
+        self.assertEqual(config.embedding.model, "intfloat/multilingual-e5-small")
+        self.assertEqual(config.embedding.device, "cpu")
+        self.assertEqual(config.pipeline.max_workers, 4)
 
     def test_database_initializes(self) -> None:
         with TemporaryDirectory() as temp_dir:

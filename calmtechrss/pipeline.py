@@ -35,7 +35,7 @@ def run_pipeline(
     try:
         db.init()
         db.upsert_sources(sources)
-        fetched = fetch_articles(sources, since)
+        fetched = fetch_articles(sources, since, max_workers=api_config.pipeline.max_workers)
         saved = db.upsert_articles(fetched)
         LOGGER.info("fetched=%s saved_or_seen=%s", len(fetched), len(saved))
 
@@ -51,7 +51,13 @@ def run_pipeline(
                 db.save_translation(article, translation_model, values)
             article.translated_title, article.translated_summary, article.translated_content = values
 
-        events = cluster_articles(candidates, api_config.embedding.model)
+        events = cluster_articles(
+            candidates,
+            embedding_model=api_config.embedding.model,
+            embedding_device=api_config.embedding.device,
+            embedding_batch_size=api_config.embedding.batch_size,
+            embedding_cpu_threads=api_config.embedding.cpu_threads,
+        )
         db.upsert_events(events)
         selected_hashes = set(llm.pick_event_hashes(events, limit=5))
         selected_events = [event for event in events if event.event_hash in selected_hashes][:5]

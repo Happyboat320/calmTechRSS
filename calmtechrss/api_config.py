@@ -25,12 +25,21 @@ class LLMSettings:
 @dataclass(frozen=True)
 class EmbeddingSettings:
     model: str = "intfloat/multilingual-e5-small"
+    device: str = "cpu"
+    batch_size: int = 32
+    cpu_threads: int = 4
+
+
+@dataclass(frozen=True)
+class PipelineSettings:
+    max_workers: int = 4
 
 
 @dataclass(frozen=True)
 class ApiConfig:
     llm: LLMSettings = LLMSettings()
     embedding: EmbeddingSettings = EmbeddingSettings()
+    pipeline: PipelineSettings = PipelineSettings()
 
 
 def load_api_config(path: str | Path) -> ApiConfig:
@@ -40,6 +49,7 @@ def load_api_config(path: str | Path) -> ApiConfig:
     raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     llm = raw.get("llm") or {}
     embedding = raw.get("embedding") or {}
+    pipeline = raw.get("pipeline") or {}
     return ApiConfig(
         llm=LLMSettings(
             enabled=bool(llm.get("enabled", True)),
@@ -52,6 +62,11 @@ def load_api_config(path: str | Path) -> ApiConfig:
         ),
         embedding=EmbeddingSettings(
             model=str(embedding.get("model", "intfloat/multilingual-e5-small")),
+            device=str(embedding.get("device", "cpu")),
+            batch_size=int(embedding.get("batch_size", 32)),
+            cpu_threads=int(embedding.get("cpu_threads", 4)),
+        ),
+        pipeline=PipelineSettings(
+            max_workers=max(1, int(pipeline.get("max_workers", 4))),
         ),
     )
-

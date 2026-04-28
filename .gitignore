@@ -1,5 +1,6 @@
 .env
 .codex
+config/api.yml
 .venv/
 __pycache__/
 *.py[cod]

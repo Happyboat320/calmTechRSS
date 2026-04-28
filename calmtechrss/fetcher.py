@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 import feedparser
@@ -13,18 +14,26 @@ from .text import clean_url, normalize_whitespace, sha256_text, strip_html
 LOGGER = logging.getLogger(__name__)
 
 
-def fetch_articles(sources: list[Source], since_utc: datetime) -> list[Article]:
+def fetch_articles(sources: list[Source], since_utc: datetime, max_workers: int = 4) -> list[Article]:
     articles: list[Article] = []
+    workers = max(1, min(max_workers, len(sources) or 1))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(fetch_source, source, since_utc) for source in sources]
+        for future in as_completed(futures):
+            articles.extend(future.result())
+    return articles
+
+
+def fetch_source(source: Source, since_utc: datetime) -> list[Article]:
     headers = {"User-Agent": "CalmTechRSS/0.1 (+https://example.com)"}
     with httpx.Client(headers=headers, follow_redirects=True, timeout=20.0) as client:
-        for source in sources:
-            try:
-                response = client.get(source.url)
-                response.raise_for_status()
-                articles.extend(parse_feed(response.text, source, since_utc))
-            except Exception as exc:  # noqa: BLE001
-                LOGGER.warning("source failed: %s: %s", source.name, exc)
-    return articles
+        try:
+            response = client.get(source.url)
+            response.raise_for_status()
+            return parse_feed(response.text, source, since_utc)
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("source failed: %s: %s", source.name, exc)
+    return []
 
 
 def parse_feed(feed_text: str, source: Source, since_utc: datetime) -> list[Article]:
@@ -82,4 +91,3 @@ def extract_content(entry: object) -> str:
         value = getattr(content_items[0], "value", "") or content_items[0].get("value", "")
         return strip_html(value)
     return ""
-

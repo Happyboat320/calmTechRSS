@@ -10,10 +10,21 @@ from .models import Article, Event
 from .text import sha256_text
 
 
-def cluster_articles(articles: list[Article], embedding_model: str | None = None) -> list[Event]:
+def cluster_articles(
+    articles: list[Article],
+    embedding_model: str | None = None,
+    embedding_device: str = "cpu",
+    embedding_batch_size: int = 32,
+    embedding_cpu_threads: int = 4,
+) -> list[Event]:
     if not articles:
         return []
-    embedder = Embedder(embedding_model)
+    embedder = Embedder(
+        model_name=embedding_model,
+        device=embedding_device,
+        batch_size=embedding_batch_size,
+        cpu_threads=embedding_cpu_threads,
+    )
     vectors = embedder.encode([cluster_text(article) for article in articles])
     groups: list[tuple[list[Article], np.ndarray]] = []
     for article, vector in zip(articles, vectors, strict=True):
@@ -74,19 +85,38 @@ def cosine(a: np.ndarray, b: np.ndarray) -> float:
 
 
 class Embedder:
-    def __init__(self, model_name: str | None = None) -> None:
+    def __init__(
+        self,
+        model_name: str | None = None,
+        device: str = "cpu",
+        batch_size: int = 32,
+        cpu_threads: int = 4,
+    ) -> None:
         self.model_name = model_name or os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
+        self.device = device
+        self.batch_size = batch_size
         self.model = None
+        try:
+            import torch
+
+            if self.device == "cpu":
+                torch.set_num_threads(max(1, cpu_threads))
+        except Exception:
+            pass
         try:
             from sentence_transformers import SentenceTransformer
 
-            self.model = SentenceTransformer(self.model_name)
+            self.model = SentenceTransformer(self.model_name, device=self.device)
         except Exception:
             self.model = None
 
     def encode(self, texts: list[str]) -> list[np.ndarray]:
         if self.model is not None:
-            vectors = self.model.encode([f"passage: {text}" for text in texts], normalize_embeddings=True)
+            vectors = self.model.encode(
+                [f"passage: {text}" for text in texts],
+                normalize_embeddings=True,
+                batch_size=self.batch_size,
+            )
             return [np.array(vector, dtype=float) for vector in vectors]
         return [hashing_vector(text) for text in texts]
 
