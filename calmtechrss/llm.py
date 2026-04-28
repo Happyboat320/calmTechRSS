@@ -8,7 +8,7 @@ from .models import Article, Event, Rewrite
 from .text import has_cjk, remove_clickbait, truncate
 
 LOGGER = logging.getLogger(__name__)
-PROMPT_VERSION = "rewrite-v1"
+PROMPT_VERSION = "rewrite-v2"
 
 
 class LLMClient:
@@ -106,7 +106,7 @@ class LLMClient:
                 return rewrite
         except Exception as exc:  # noqa: BLE001
             LOGGER.warning("rewrite failed for %s: %s", event.event_hash, exc)
-        return fallback_rewrite(event)
+        return fallback_rewrite(event, uncertainty="LLM 重写失败，当前条目使用来源摘要生成。")
 
     def _chat_json(self, prompt: str) -> dict:
         import httpx
@@ -140,7 +140,10 @@ def validate_sources(raw: object, event: Event) -> list[dict[str, str]]:
     return sources or [{"name": a.source_name, "url": a.url} for a in event.articles[:5]]
 
 
-def fallback_rewrite(event: Event) -> Rewrite:
+def fallback_rewrite(
+    event: Event,
+    uncertainty: str = "未配置 LLM API，当前条目使用来源摘要生成。",
+) -> Rewrite:
     articles = sorted(event.articles, key=lambda a: a.source_weight, reverse=True)
     primary = articles[0]
     title = remove_clickbait(primary.translated_title or primary.title)
@@ -153,5 +156,5 @@ def fallback_rewrite(event: Event) -> Rewrite:
         title=truncate(title, 64),
         summary=remove_clickbait(summary),
         sources=[{"name": a.source_name, "url": a.url} for a in articles[:5]],
-        uncertainty="未配置 LLM API，当前条目使用来源摘要生成。",
+        uncertainty=uncertainty,
     )

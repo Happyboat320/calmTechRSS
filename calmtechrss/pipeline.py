@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -24,7 +25,7 @@ def run_pipeline(
     output_dir: str | Path,
     site_base_url: str,
     issue_date: str | None = None,
-    candidate_hours: int = 48,
+    candidate_hours: int = 24,
 ) -> None:
     load_env()
     issue_date = issue_date or date.today().isoformat()
@@ -41,16 +42,6 @@ def run_pipeline(
 
         candidates = db.get_articles_since(since)
         llm = LLMClient(api_config.llm)
-        translation_model = llm.model if llm.enabled else "source-text"
-        for article in candidates:
-            cached = db.get_translation(article, translation_model)
-            if cached:
-                values = cached
-            else:
-                values = llm.translate_article(article)
-                db.save_translation(article, translation_model, values)
-            article.translated_title, article.translated_summary, article.translated_content = values
-
         events = cluster_articles(
             candidates,
             embedding_model=api_config.embedding.model,
@@ -64,14 +55,29 @@ def run_pipeline(
         if len(selected_events) < 3:
             selected_events = events[: min(5, len(events))]
 
-        rewrites = []
+        rewrites_by_hash = {}
         rewrite_model = llm.model if llm.enabled else "fallback"
+        missing_events = []
         for event in selected_events:
             cached_rewrite = db.get_rewrite(event.event_hash, PROMPT_VERSION, rewrite_model)
-            rewrite = cached_rewrite or llm.rewrite_event(event)
             if cached_rewrite is None:
-                db.save_rewrite(event.event_hash, PROMPT_VERSION, rewrite_model, rewrite)
-            rewrites.append((event, rewrite))
+                missing_events.append(event)
+            else:
+                rewrites_by_hash[event.event_hash] = cached_rewrite
+
+        if missing_events:
+            workers = min(api_config.pipeline.max_workers, len(missing_events))
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                future_to_event = {
+                    executor.submit(llm.rewrite_event, event): event for event in missing_events
+                }
+                for future in as_completed(future_to_event):
+                    event = future_to_event[future]
+                    rewrite = future.result()
+                    db.save_rewrite(event.event_hash, PROMPT_VERSION, rewrite_model, rewrite)
+                    rewrites_by_hash[event.event_hash] = rewrite
+
+        rewrites = [(event, rewrites_by_hash[event.event_hash]) for event in selected_events]
 
         html_path = render_issue(output_dir, issue_date, rewrites, site_base_url)
         generate_feed(output_dir, site_base_url, issue_date)

@@ -18,7 +18,7 @@ def main() -> None:
     run_parser = subparsers.add_parser("run")
     add_common(run_parser)
     run_parser.add_argument("--date", dest="issue_date")
-    run_parser.add_argument("--candidate-hours", type=int, default=48)
+    run_parser.add_argument("--candidate-hours", type=int, default=24)
 
     init_parser = subparsers.add_parser("init-db")
     init_parser.add_argument("--db", default=os.getenv("DATABASE_PATH", "data/calmtechrss.sqlite3"))

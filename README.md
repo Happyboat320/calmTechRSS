@@ -80,7 +80,7 @@ python3 -m calmtechrss validate-feed
 - `--output site`
 - `--site-base-url https://example.com`
 - `--date YYYY-MM-DD`
-- `--candidate-hours 48`
+- `--candidate-hours 24`
 
 ## 可选向量依赖
 
