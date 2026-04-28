@@ -5,7 +5,7 @@ import logging
 
 from .api_config import LLMSettings
 from .models import Article, Event, Rewrite
-from .text import has_cjk, remove_clickbait, truncate
+from .text import remove_clickbait, truncate
 
 LOGGER = logging.getLogger(__name__)
 PROMPT_VERSION = "rewrite-v2"
@@ -22,38 +22,18 @@ class LLMClient:
     def enabled(self) -> bool:
         return self.settings.enabled and bool(self.api_key)
 
-    def translate_article(self, article: Article) -> tuple[str, str, str]:
-        if not self.enabled or has_cjk(article.title + article.summary + article.content):
-            return article.title, article.summary, article.content
-        prompt = (
-            "Translate the following RSS article fields into concise Chinese. "
-            "Keep product names and links unchanged. Return strict JSON with keys "
-            "title, summary, content.\n\n"
-            f"Title: {article.title}\nSummary: {article.summary}\nContent: {truncate(article.content, 1800)}"
-        )
-        try:
-            data = self._chat_json(prompt)
-            return (
-                str(data.get("title") or article.title),
-                str(data.get("summary") or article.summary),
-                str(data.get("content") or article.content),
-            )
-        except Exception as exc:  # noqa: BLE001
-            LOGGER.warning("translation failed for %s: %s", article.url, exc)
-            return article.title, article.summary, article.content
-
     def pick_event_hashes(self, events: list[Event], limit: int = 5) -> list[str]:
         if not self.enabled or len(events) <= 5:
             return [event.event_hash for event in events[:limit]]
         catalog = []
-        for event in events[:30]:
-            titles = [a.translated_title or a.title for a in event.articles]
+        for event in events:
+            titles = [a.title for a in event.articles]
             catalog.append(
                 {
                     "event_hash": event.event_hash,
                     "score": round(event.score, 3),
                     "sources": sorted({a.source_name for a in event.articles}),
-                    "titles": titles[:5],
+                    "titles": titles,
                 }
             )
         prompt = (
@@ -82,9 +62,9 @@ class LLMClient:
                 {
                     "source": article.source_name,
                     "url": article.url,
-                    "title": article.translated_title or article.title,
-                    "summary": truncate(article.translated_summary or article.summary, 700),
-                    "content": truncate(article.translated_content or article.content, 1200),
+                    "title": article.title,
+                    "summary": truncate(article.summary, 700),
+                    "content": truncate(article.content, 1200),
                 }
             )
         prompt = (
@@ -146,10 +126,10 @@ def fallback_rewrite(
 ) -> Rewrite:
     articles = sorted(event.articles, key=lambda a: a.source_weight, reverse=True)
     primary = articles[0]
-    title = remove_clickbait(primary.translated_title or primary.title)
+    title = remove_clickbait(primary.title)
     fragments = [
-        primary.translated_summary or primary.summary,
-        primary.translated_content or primary.content,
+        primary.summary,
+        primary.content,
     ]
     summary = truncate(next((item for item in fragments if item), title), 150)
     return Rewrite(

@@ -48,10 +48,7 @@ def cluster_articles(
 
 
 def cluster_text(article: Article) -> str:
-    title = article.translated_title or article.title
-    summary = article.translated_summary or article.summary
-    content = article.translated_content or article.content
-    return f"{title}\n{summary[:400]}\n{content[:600]}"
+    return f"{article.title}\n{article.summary[:400]}\n{article.content[:600]}"
 
 
 def make_event(articles: list[Article]) -> Event:
@@ -65,9 +62,9 @@ def make_event(articles: list[Article]) -> Event:
 
 
 def compatible(article: Article, group: list[Article]) -> bool:
-    title_tokens = tokens(article.translated_title or article.title)
+    title_tokens = tokens(article.title)
     for other in group:
-        overlap = title_tokens & tokens(other.translated_title or other.title)
+        overlap = title_tokens & tokens(other.title)
         if len(overlap) >= 2:
             return True
     return False

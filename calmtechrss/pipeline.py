@@ -10,6 +10,7 @@ from .cluster import cluster_articles
 from .config import load_sources
 from .db import Database
 from .env import load_env
+from .export import write_clusters_json
 from .fetcher import fetch_articles
 from .llm import LLMClient, PROMPT_VERSION
 from .render import render_issue
@@ -50,6 +51,8 @@ def run_pipeline(
             embedding_cpu_threads=api_config.embedding.cpu_threads,
         )
         db.upsert_events(events)
+        clusters_json_path = write_clusters_json(output_dir, issue_date, events)
+        LOGGER.info("clusters_json=%s event_count=%s", clusters_json_path, len(events))
         selected_hashes = set(llm.pick_event_hashes(events, limit=5))
         selected_events = [event for event in events if event.event_hash in selected_hashes][:5]
         if len(selected_events) < 3:

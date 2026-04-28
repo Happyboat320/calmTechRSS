@@ -2,7 +2,7 @@
 
 Calm Tech RSS 会从可信科技 RSS / Atom 源抓取内容，去重、聚类并筛选 3-5 条值得关注的事件，生成克制、客观的中文科技日报，同时发布静态 HTML 和每天只新增一个条目的 RSS Feed。
 
-系统按可重复运行设计：文章 URL、翻译结果、事件重写和每日简报都会缓存在 SQLite 中，重复执行不会重复入库，也会尽量避免重复调用 LLM。
+系统按可重复运行设计：文章 URL、事件重写和每日简报都会缓存在 SQLite 中，重复执行不会重复入库，也会尽量避免重复调用 LLM。
 
 ## 快速开始
 
@@ -18,6 +18,7 @@ python3 -m calmtechrss run --date 2026-04-28
 
 - `site/issues/YYYY-MM-DD.html`
 - `site/feed.xml`
+- `site/clusters/YYYY-MM-DD.json`
 - `data/calmtechrss.sqlite3`
 
 ## 配置文件
@@ -44,7 +45,7 @@ llm:
   api_key: ""
   model: gpt-4.1-mini
   temperature: 0.2
-  timeout_seconds: 60
+  timeout_seconds: 180
 
 embedding:
   model: intfloat/multilingual-e5-small
@@ -63,6 +64,15 @@ OPENAI_API_KEY=你的密钥
 ```
 
 如果没有配置 API key，程序会使用本地降级摘要，完整生成流程仍然可以运行。`sentence-transformers` 或模型不可用时，语义聚类会回退到确定性的本地哈希向量。GitHub Actions 环境默认按 CPU 运行 `intfloat/multilingual-e5-small`，并发抓取数默认是 4。
+
+## LLM 调用流程
+
+主流程不会逐篇翻译文章。LLM 只在两类任务中调用：
+
+- 事件选择：把所有聚类后的事件及其全部标题传给模型，要求返回 3-5 个 `event_hash`。
+- 事件重写：只对选中的 3-5 个事件调用模型，每个请求包含该事件内文章的标题、摘要、正文片段和来源链接。
+
+每次运行会把聚类结果写入 `site/clusters/YYYY-MM-DD.json`，用于核查聚类数量、每类文章和传给事件选择步骤的标题。
 
 ## 常用命令
 
@@ -96,9 +106,17 @@ pip install ".[embeddings]"
 
 仓库包含 GitHub Actions 工作流，会每天运行一次生成任务，并把 `site/` 作为 GitHub Pages artifact 上传。Actions 会安装 CPU 版 Torch 和 `sentence-transformers`，使用 `config/api.example.yml` 中的 `device: cpu`、`cpu_threads: 4` 和 `max_workers: 4`。
 
-部署前至少需要设置：
+部署步骤：
+
+1. 推送仓库到 GitHub。
+2. 在仓库 `Settings -> Pages` 中，把 Build and deployment 的 Source 设为 `GitHub Actions`。
+3. 在 `Settings -> Secrets and variables -> Actions` 中添加需要的 Secrets。
+4. 确认 `SITE_BASE_URL` 是最终站点地址，例如 `https://用户名.github.io/仓库名`。
+5. 到 `Actions -> Daily digest` 手动运行一次，确认生成和部署成功。
+
+建议设置：
 
 - `OPENAI_API_KEY`：可选，不设置时使用本地降级摘要
 - `SITE_BASE_URL`：建议设置为实际站点地址，否则 RSS 链接会指向默认示例地址
 
-如果需要更换 API 服务商、模型或向量模型，修改 `config/api.yml` 即可。
+如果需要更换 API 服务商、模型或向量模型，本地修改 `config/api.yml`；GitHub Actions 使用提交到仓库的 `config/api.example.yml`，因此部署环境的非密钥配置需要同步改这个模板文件。

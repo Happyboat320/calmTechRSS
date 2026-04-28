@@ -7,7 +7,7 @@ llm:
   api_key: ""
   model: gpt-4.1-mini
   temperature: 0.2
-  timeout_seconds: 60
+  timeout_seconds: 180
 
 # GitHub Actions 默认没有 GPU，明确使用 CPU。
 # 未安装 sentence-transformers 或模型不可用时，程序会自动回退到本地哈希向量。
@@ -20,4 +20,3 @@ embedding:
 # 批处理并发设置。
 pipeline:
   max_workers: 4
-

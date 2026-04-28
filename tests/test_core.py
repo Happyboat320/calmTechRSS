@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -7,6 +8,7 @@ import unittest
 
 from calmtechrss.api_config import load_api_config
 from calmtechrss.db import Database
+from calmtechrss.export import write_clusters_json
 from calmtechrss.llm import fallback_rewrite
 from calmtechrss.models import Article, Event
 from calmtechrss.render import render_issue
@@ -59,6 +61,17 @@ class CoreTest(unittest.TestCase):
             self.assertTrue(Path(html_path).exists())
             self.assertTrue(Path(feed_path).exists())
             validate_feed(feed_path)
+
+    def test_clusters_json_exports_events(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            event = make_event()
+            path = write_clusters_json(temp_dir, "2026-04-28", [event])
+            payload = json.loads(Path(path).read_text(encoding="utf-8"))
+
+            self.assertEqual(payload["issue_date"], "2026-04-28")
+            self.assertEqual(payload["event_count"], 1)
+            self.assertEqual(payload["events"][0]["event_hash"], "e1")
+            self.assertEqual(payload["events"][0]["titles"], ["AI tooling update"])
 
 
 if __name__ == "__main__":
