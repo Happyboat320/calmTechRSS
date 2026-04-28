@@ -52,8 +52,16 @@ CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   event_hash TEXT NOT NULL UNIQUE,
   article_hashes_json TEXT NOT NULL,
+  centroid_json TEXT NOT NULL DEFAULT '[]',
   score REAL NOT NULL,
   created_at_utc TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS event_articles (
+  event_hash TEXT NOT NULL,
+  url_hash TEXT NOT NULL,
+  created_at_utc TEXT NOT NULL,
+  PRIMARY KEY (event_hash, url_hash)
 );
 
 CREATE TABLE IF NOT EXISTS event_rewrites (
@@ -90,7 +98,15 @@ class Database:
 
     def init(self) -> None:
         self.conn.executescript(SCHEMA)
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        event_columns = {
+            row["name"] for row in self.conn.execute("PRAGMA table_info(events)").fetchall()
+        }
+        if "centroid_json" not in event_columns:
+            self.conn.execute("ALTER TABLE events ADD COLUMN centroid_json TEXT NOT NULL DEFAULT '[]'")
 
     def upsert_sources(self, sources: list[Source]) -> None:
         self.conn.executemany(
@@ -156,6 +172,29 @@ class Database:
         ).fetchall()
         return [row_to_article(row) for row in rows]
 
+    def get_unassigned_articles_since(self, since_utc: datetime) -> list[Article]:
+        rows = self.conn.execute(
+            """
+            SELECT a.* FROM articles a
+            LEFT JOIN event_articles ea ON ea.url_hash = a.url_hash
+            WHERE a.published_at_utc >= ? AND ea.url_hash IS NULL
+            ORDER BY a.published_at_utc DESC
+            """,
+            (since_utc.isoformat(),),
+        ).fetchall()
+        return [row_to_article(row) for row in rows]
+
+    def get_articles_by_hashes(self, url_hashes: list[str]) -> list[Article]:
+        if not url_hashes:
+            return []
+        placeholders = ",".join("?" for _ in url_hashes)
+        rows = self.conn.execute(
+            f"SELECT * FROM articles WHERE url_hash IN ({placeholders})",
+            url_hashes,
+        ).fetchall()
+        by_hash = {row["url_hash"]: row_to_article(row) for row in rows}
+        return [by_hash[item] for item in url_hashes if item in by_hash]
+
     def get_translation(self, article: Article, model: str) -> tuple[str, str, str] | None:
         if article.id is None:
             return None
@@ -190,19 +229,74 @@ class Database:
             hashes = sorted(a.url_hash for a in event.articles)
             self.conn.execute(
                 """
-                INSERT INTO events (event_hash, article_hashes_json, score, created_at_utc)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO events (event_hash, article_hashes_json, centroid_json, score, created_at_utc)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(event_hash) DO UPDATE SET
                   article_hashes_json=excluded.article_hashes_json,
+                  centroid_json=excluded.centroid_json,
                   score=excluded.score
                 """,
-                (event.event_hash, json.dumps(hashes), event.score, utc_now()),
+                (
+                    event.event_hash,
+                    json.dumps(hashes),
+                    json.dumps(event.centroid or []),
+                    event.score,
+                    utc_now(),
+                ),
+            )
+            self.conn.executemany(
+                """
+                INSERT OR IGNORE INTO event_articles (event_hash, url_hash, created_at_utc)
+                VALUES (?, ?, ?)
+                """,
+                [(event.event_hash, article.url_hash, utc_now()) for article in event.articles],
             )
             row = self.conn.execute(
                 "SELECT id FROM events WHERE event_hash = ?", (event.event_hash,)
             ).fetchone()
             event.id = int(row["id"])
         self.conn.commit()
+
+    def get_existing_clusters(self) -> list[tuple[str, list[Article], list[float]]]:
+        rows = self.conn.execute(
+            """
+            SELECT event_hash, article_hashes_json, centroid_json
+            FROM events
+            WHERE centroid_json != '[]'
+            """
+        ).fetchall()
+        clusters = []
+        for row in rows:
+            hashes = json.loads(row["article_hashes_json"])
+            centroid = json.loads(row["centroid_json"])
+            if centroid:
+                clusters.append((row["event_hash"], self.get_articles_by_hashes(hashes), centroid))
+        return clusters
+
+    def get_events_with_recent_articles(self, since_utc: datetime) -> list[Event]:
+        rows = self.conn.execute(
+            """
+            SELECT DISTINCT e.event_hash, e.article_hashes_json, e.centroid_json, e.score, e.id
+            FROM events e
+            JOIN event_articles ea ON ea.event_hash = e.event_hash
+            JOIN articles a ON a.url_hash = ea.url_hash
+            WHERE a.published_at_utc >= ?
+            ORDER BY e.score DESC
+            """,
+            (since_utc.isoformat(),),
+        ).fetchall()
+        events = []
+        for row in rows:
+            hashes = json.loads(row["article_hashes_json"])
+            event = Event(
+                id=int(row["id"]),
+                event_hash=row["event_hash"],
+                articles=self.get_articles_by_hashes(hashes),
+                score=float(row["score"]),
+                centroid=json.loads(row["centroid_json"]),
+            )
+            events.append(event)
+        return events
 
     def get_rewrite(self, event_hash: str, prompt_version: str, model: str) -> Rewrite | None:
         row = self.conn.execute(
@@ -270,4 +364,3 @@ def row_to_article(row: sqlite3.Row) -> Article:
         content_hash=row["content_hash"],
         source_weight=float(row["source_weight"]),
     )
-

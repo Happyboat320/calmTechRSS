@@ -3,11 +3,19 @@ from __future__ import annotations
 import math
 import os
 from collections import Counter
+from dataclasses import dataclass
 
 import numpy as np
 
 from .models import Article, Event
 from .text import sha256_text
+
+
+@dataclass
+class ExistingCluster:
+    event_hash: str
+    articles: list[Article]
+    centroid: list[float]
 
 
 def cluster_articles(
@@ -47,18 +55,96 @@ def cluster_articles(
     return sorted(events, key=lambda event: event.score, reverse=True)
 
 
+def incremental_cluster_articles(
+    articles: list[Article],
+    existing_clusters: list[ExistingCluster],
+    embedding_model: str | None = None,
+    embedding_device: str = "cpu",
+    embedding_batch_size: int = 32,
+    embedding_cpu_threads: int = 4,
+) -> list[Event]:
+    if not articles:
+        return []
+    embedder = Embedder(
+        model_name=embedding_model,
+        device=embedding_device,
+        batch_size=embedding_batch_size,
+        cpu_threads=embedding_cpu_threads,
+    )
+    vectors = embedder.encode([cluster_text(article) for article in articles])
+    changed_events: dict[str, Event] = {}
+    remaining: list[tuple[Article, np.ndarray]] = []
+    existing = [
+        {
+            "event_hash": cluster.event_hash,
+            "articles": list(cluster.articles),
+            "centroid": np.array(cluster.centroid, dtype=float),
+        }
+        for cluster in existing_clusters
+        if cluster.centroid
+    ]
+
+    for article, vector in zip(articles, vectors, strict=True):
+        best_index = -1
+        best_similarity = -1.0
+        for index, cluster in enumerate(existing):
+            similarity = cosine(vector, cluster["centroid"])
+            if similarity > best_similarity:
+                best_similarity = similarity
+                best_index = index
+        if best_similarity >= 0.90 or (
+            best_similarity >= 0.86 and best_index >= 0 and compatible(article, existing[best_index]["articles"])
+        ):
+            cluster = existing[best_index]
+            group = cluster["articles"]
+            group.append(article)
+            cluster["centroid"] = (cluster["centroid"] * (len(group) - 1) + vector) / len(group)
+            event = make_event(group, event_hash=str(cluster["event_hash"]), centroid=cluster["centroid"])
+            changed_events[event.event_hash] = event
+        else:
+            remaining.append((article, vector))
+
+    groups: list[tuple[list[Article], np.ndarray]] = []
+    for article, vector in remaining:
+        best_index = -1
+        best_similarity = -1.0
+        for index, (_, centroid) in enumerate(groups):
+            similarity = cosine(vector, centroid)
+            if similarity > best_similarity:
+                best_similarity = similarity
+                best_index = index
+        if best_similarity >= 0.90 or (
+            best_similarity >= 0.86 and best_index >= 0 and compatible(article, groups[best_index][0])
+        ):
+            group, centroid = groups[best_index]
+            group.append(article)
+            groups[best_index] = (group, (centroid * (len(group) - 1) + vector) / len(group))
+        else:
+            groups.append(([article], vector))
+
+    for group, centroid in groups:
+        event = make_event(group, centroid=centroid)
+        changed_events[event.event_hash] = event
+    return sorted(changed_events.values(), key=lambda event: event.score, reverse=True)
+
+
 def cluster_text(article: Article) -> str:
     return f"{article.title}\n{article.summary[:400]}\n{article.content[:600]}"
 
 
-def make_event(articles: list[Article]) -> Event:
+def make_event(
+    articles: list[Article],
+    event_hash: str | None = None,
+    centroid: np.ndarray | None = None,
+) -> Event:
     hashes = sorted(article.url_hash for article in articles)
-    event_hash = sha256_text("\n".join(hashes))
+    event_hash = event_hash or sha256_text("\n".join(hashes))
     source_count = len({article.source_name for article in articles})
     official_bonus = sum(1 for a in articles if a.source_category == "official") * 0.5
     weight = sum(article.source_weight for article in articles)
     score = math.log1p(len(articles)) + source_count * 0.8 + official_bonus + weight * 0.2
-    return Event(event_hash=event_hash, articles=articles, score=score)
+    centroid_list = centroid.tolist() if centroid is not None else None
+    return Event(event_hash=event_hash, articles=articles, score=score, centroid=centroid_list)
 
 
 def compatible(article: Article, group: list[Article]) -> bool:
@@ -93,6 +179,8 @@ class Embedder:
         self.device = device
         self.batch_size = batch_size
         self.model = None
+        if self.model_name == "hashing":
+            return
         try:
             import torch
 

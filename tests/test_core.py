@@ -7,6 +7,8 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from calmtechrss.api_config import load_api_config
+from calmtechrss.cluster import ExistingCluster, incremental_cluster_articles
+from calmtechrss.config import load_sources
 from calmtechrss.db import Database
 from calmtechrss.export import write_clusters_json
 from calmtechrss.llm import fallback_rewrite
@@ -33,6 +35,29 @@ def make_event() -> Event:
 
 
 class CoreTest(unittest.TestCase):
+    def test_plan_sources_are_configured(self) -> None:
+        sources = load_sources("config/sources.yml")
+        names = {source.name for source in sources}
+
+        self.assertEqual(len(sources), 12)
+        self.assertEqual(
+            names,
+            {
+                "OpenAI Blog",
+                "Anthropic News",
+                "Google DeepMind Blog",
+                "Microsoft AI Blog",
+                "NVIDIA Blog",
+                "Hugging Face Blog",
+                "The Verge",
+                "TechCrunch AI",
+                "VentureBeat AI",
+                "MIT Technology Review AI",
+                "量子位",
+                "InfoQ 中文",
+            },
+        )
+
     def test_api_config_loads_model_settings(self) -> None:
         config = load_api_config("config/api.yml")
 
@@ -72,6 +97,39 @@ class CoreTest(unittest.TestCase):
             self.assertEqual(payload["event_count"], 1)
             self.assertEqual(payload["events"][0]["event_hash"], "e1")
             self.assertEqual(payload["events"][0]["titles"], ["AI tooling update"])
+
+    def test_incremental_cluster_assigns_to_existing_event(self) -> None:
+        existing_article = make_event().articles[0]
+        initial = incremental_cluster_articles([existing_article], [], embedding_model="hashing")
+        new_article = Article(
+            title="AI tooling update",
+            url="https://example.com/b",
+            source_name="Example 2",
+            source_category="media",
+            published_at_utc=datetime.now(timezone.utc),
+            summary="A concise update about AI tooling.",
+            content="",
+            source_article_id="b",
+            url_hash="h2",
+            content_hash="c2",
+            source_weight=1.0,
+        )
+
+        updated = incremental_cluster_articles(
+            [new_article],
+            [
+                ExistingCluster(
+                    event_hash=initial[0].event_hash,
+                    articles=initial[0].articles,
+                    centroid=initial[0].centroid or [],
+                )
+            ],
+            embedding_model="hashing",
+        )
+
+        self.assertEqual(len(updated), 1)
+        self.assertEqual(updated[0].event_hash, initial[0].event_hash)
+        self.assertEqual({article.url_hash for article in updated[0].articles}, {"h1", "h2"})
 
 
 if __name__ == "__main__":

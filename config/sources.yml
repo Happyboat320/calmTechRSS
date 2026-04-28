@@ -53,4 +53,21 @@ sources:
     category: media
     active: true
     weight: 0.9
-
+  - name: MIT Technology Review AI
+    url: https://www.technologyreview.com/topic/artificial-intelligence/feed/
+    type: rss
+    category: media
+    active: true
+    weight: 1.0
+  - name: 量子位
+    url: https://www.qbitai.com/feed
+    type: rss
+    category: media
+    active: true
+    weight: 0.9
+  - name: InfoQ 中文
+    url: https://www.infoq.cn/feed
+    type: rss
+    category: media
+    active: true
+    weight: 0.9

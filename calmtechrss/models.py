@@ -39,6 +39,7 @@ class Event:
     articles: list[Article]
     score: float = 0.0
     id: int | None = None
+    centroid: list[float] | None = None
 
 
 @dataclass
@@ -54,4 +55,3 @@ class Issue:
     issue_date: str
     events: list[tuple[Event, Rewrite]] = field(default_factory=list)
     html_path: str = ""
-

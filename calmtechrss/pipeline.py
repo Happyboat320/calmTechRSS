@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from .api_config import load_api_config
-from .cluster import cluster_articles
+from .cluster import ExistingCluster, incremental_cluster_articles
 from .config import load_sources
 from .db import Database
 from .env import load_env
@@ -41,16 +41,22 @@ def run_pipeline(
         saved = db.upsert_articles(fetched)
         LOGGER.info("fetched=%s saved_or_seen=%s", len(fetched), len(saved))
 
-        candidates = db.get_articles_since(since)
+        candidates = db.get_unassigned_articles_since(since)
         llm = LLMClient(api_config.llm)
-        events = cluster_articles(
+        existing_clusters = [
+            ExistingCluster(event_hash=event_hash, articles=articles, centroid=centroid)
+            for event_hash, articles, centroid in db.get_existing_clusters()
+        ]
+        changed_events = incremental_cluster_articles(
             candidates,
+            existing_clusters=existing_clusters,
             embedding_model=api_config.embedding.model,
             embedding_device=api_config.embedding.device,
             embedding_batch_size=api_config.embedding.batch_size,
             embedding_cpu_threads=api_config.embedding.cpu_threads,
         )
-        db.upsert_events(events)
+        db.upsert_events(changed_events)
+        events = db.get_events_with_recent_articles(since)
         clusters_json_path = write_clusters_json(output_dir, issue_date, events)
         LOGGER.info("clusters_json=%s event_count=%s", clusters_json_path, len(events))
         selected_hashes = set(llm.pick_event_hashes(events, limit=5))
