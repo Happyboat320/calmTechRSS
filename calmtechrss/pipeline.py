@@ -4,6 +4,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+from .api_config import load_api_config
 from .cluster import cluster_articles
 from .config import load_sources
 from .db import Database
@@ -18,6 +19,7 @@ LOGGER = logging.getLogger(__name__)
 
 def run_pipeline(
     sources_path: str | Path,
+    api_config_path: str | Path,
     db_path: str | Path,
     output_dir: str | Path,
     site_base_url: str,
@@ -27,6 +29,7 @@ def run_pipeline(
     load_env()
     issue_date = issue_date or date.today().isoformat()
     since = datetime.now(timezone.utc) - timedelta(hours=candidate_hours)
+    api_config = load_api_config(api_config_path)
     sources = load_sources(sources_path)
     db = Database(db_path)
     try:
@@ -37,7 +40,7 @@ def run_pipeline(
         LOGGER.info("fetched=%s saved_or_seen=%s", len(fetched), len(saved))
 
         candidates = db.get_articles_since(since)
-        llm = LLMClient()
+        llm = LLMClient(api_config.llm)
         translation_model = llm.model if llm.enabled else "source-text"
         for article in candidates:
             cached = db.get_translation(article, translation_model)
@@ -48,7 +51,7 @@ def run_pipeline(
                 db.save_translation(article, translation_model, values)
             article.translated_title, article.translated_summary, article.translated_content = values
 
-        events = cluster_articles(candidates)
+        events = cluster_articles(candidates, api_config.embedding.model)
         db.upsert_events(events)
         selected_hashes = set(llm.pick_event_hashes(events, limit=5))
         selected_events = [event for event in events if event.event_hash in selected_hashes][:5]

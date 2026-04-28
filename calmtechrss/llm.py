@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 
+from .api_config import LLMSettings
 from .models import Article, Event, Rewrite
 from .text import has_cjk, remove_clickbait, truncate
 
@@ -12,14 +12,15 @@ PROMPT_VERSION = "rewrite-v1"
 
 
 class LLMClient:
-    def __init__(self) -> None:
-        self.api_key = os.getenv("OPENAI_API_KEY", "")
-        self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-        self.model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    def __init__(self, settings: LLMSettings | None = None) -> None:
+        self.settings = settings or LLMSettings()
+        self.api_key = self.settings.resolved_api_key
+        self.base_url = self.settings.base_url.rstrip("/")
+        self.model = self.settings.model
 
     @property
     def enabled(self) -> bool:
-        return bool(self.api_key)
+        return self.settings.enabled and bool(self.api_key)
 
     def translate_article(self, article: Article) -> tuple[str, str, str]:
         if not self.enabled or has_cjk(article.title + article.summary + article.content):
@@ -119,10 +120,10 @@ class LLMClient:
                     {"role": "system", "content": "Return strict JSON only."},
                     {"role": "user", "content": prompt},
                 ],
-                "temperature": 0.2,
+                "temperature": self.settings.temperature,
                 "response_format": {"type": "json_object"},
             },
-            timeout=60.0,
+            timeout=self.settings.timeout_seconds,
         )
         response.raise_for_status()
         content = response.json()["choices"][0]["message"]["content"]

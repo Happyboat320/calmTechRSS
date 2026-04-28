@@ -27,8 +27,6 @@ jobs:
       - name: Generate digest
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
-          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
           SITE_BASE_URL: ${{ secrets.SITE_BASE_URL }}
         run: python -m calmtechrss run --site-base-url "${SITE_BASE_URL:-https://example.com}"
       - uses: actions/upload-pages-artifact@v3
@@ -44,4 +42,3 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
-

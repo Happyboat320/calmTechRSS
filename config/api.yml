@@ -1,0 +1,16 @@
+# OpenAI-compatible Chat Completions 配置。
+# 建议把密钥放在环境变量里，不要直接写进仓库文件。
+llm:
+  enabled: true
+  base_url: https://api.openai.com/v1
+  api_key_env: OPENAI_API_KEY
+  api_key: ""
+  model: gpt-4.1-mini
+  temperature: 0.2
+  timeout_seconds: 60
+
+# 语义聚类使用的向量模型。
+# 未安装 sentence-transformers 或模型不可用时，程序会自动回退到本地哈希向量。
+embedding:
+  model: intfloat/multilingual-e5-small
+

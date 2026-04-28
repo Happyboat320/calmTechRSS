@@ -5,6 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
+from calmtechrss.api_config import load_api_config
 from calmtechrss.db import Database
 from calmtechrss.llm import fallback_rewrite
 from calmtechrss.models import Article, Event
@@ -30,6 +31,13 @@ def make_event() -> Event:
 
 
 class CoreTest(unittest.TestCase):
+    def test_api_config_loads_model_settings(self) -> None:
+        config = load_api_config("config/api.yml")
+
+        self.assertEqual(config.llm.api_key_env, "OPENAI_API_KEY")
+        self.assertTrue(config.llm.model)
+        self.assertTrue(config.embedding.model)
+
     def test_database_initializes(self) -> None:
         with TemporaryDirectory() as temp_dir:
             db = Database(Path(temp_dir) / "calmtechrss.sqlite3")

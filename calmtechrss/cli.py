@@ -34,6 +34,7 @@ def main() -> None:
 
         run_pipeline(
             sources_path=args.sources,
+            api_config_path=args.api_config,
             db_path=args.db,
             output_dir=args.output,
             site_base_url=args.site_base_url,
@@ -52,6 +53,7 @@ def main() -> None:
 
 def add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--sources", default=os.getenv("SOURCES_PATH", "config/sources.yml"))
+    parser.add_argument("--api-config", default=os.getenv("API_CONFIG_PATH", "config/api.yml"))
     parser.add_argument("--db", default=os.getenv("DATABASE_PATH", "data/calmtechrss.sqlite3"))
     parser.add_argument("--output", default=os.getenv("OUTPUT_DIR", "site"))
     parser.add_argument("--site-base-url", default=os.getenv("SITE_BASE_URL", "https://example.com"))

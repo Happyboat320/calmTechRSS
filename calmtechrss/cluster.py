@@ -10,10 +10,10 @@ from .models import Article, Event
 from .text import sha256_text
 
 
-def cluster_articles(articles: list[Article]) -> list[Event]:
+def cluster_articles(articles: list[Article], embedding_model: str | None = None) -> list[Event]:
     if not articles:
         return []
-    embedder = Embedder()
+    embedder = Embedder(embedding_model)
     vectors = embedder.encode([cluster_text(article) for article in articles])
     groups: list[tuple[list[Article], np.ndarray]] = []
     for article, vector in zip(articles, vectors, strict=True):
@@ -74,8 +74,8 @@ def cosine(a: np.ndarray, b: np.ndarray) -> float:
 
 
 class Embedder:
-    def __init__(self) -> None:
-        self.model_name = os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
+    def __init__(self, model_name: str | None = None) -> None:
+        self.model_name = model_name or os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
         self.model = None
         try:
             from sentence_transformers import SentenceTransformer
@@ -102,4 +102,3 @@ def hashing_vector(text: str, dimensions: int = 256) -> np.ndarray:
     if norm:
         vector = vector / norm
     return vector
-
