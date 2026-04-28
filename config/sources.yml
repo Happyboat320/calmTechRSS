@@ -1,0 +1,56 @@
+sources:
+  - name: OpenAI Blog
+    url: https://openai.com/news/rss.xml
+    type: rss
+    category: official
+    active: true
+    weight: 1.5
+  - name: Anthropic News
+    url: https://rsshub.bestblogs.dev/anthropic/news
+    type: rss
+    category: official
+    active: true
+    weight: 1.4
+  - name: Google DeepMind Blog
+    url: https://deepmind.google/blog/rss.xml
+    type: rss
+    category: official
+    active: true
+    weight: 1.5
+  - name: Microsoft AI Blog
+    url: https://blogs.microsoft.com/ai/feed/
+    type: rss
+    category: official
+    active: true
+    weight: 1.3
+  - name: NVIDIA Blog
+    url: https://blogs.nvidia.com/feed/
+    type: rss
+    category: official
+    active: true
+    weight: 1.2
+  - name: Hugging Face Blog
+    url: https://huggingface.co/blog/feed.xml
+    type: rss
+    category: official
+    active: true
+    weight: 1.2
+  - name: The Verge
+    url: https://www.theverge.com/rss/index.xml
+    type: rss
+    category: media
+    active: true
+    weight: 0.8
+  - name: TechCrunch AI
+    url: https://techcrunch.com/category/artificial-intelligence/feed/
+    type: rss
+    category: media
+    active: true
+    weight: 1.0
+  - name: VentureBeat AI
+    url: https://venturebeat.com/category/ai/feed
+    type: rss
+    category: media
+    active: true
+    weight: 0.9
+
