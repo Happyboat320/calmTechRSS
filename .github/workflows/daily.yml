@@ -34,7 +34,9 @@ jobs:
           TOKENIZERS_PARALLELISM: "false"
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           SITE_BASE_URL: ${{ secrets.SITE_BASE_URL }}
-        run: python -m calmtechrss run --api-config config/api.example.yml --site-base-url "${SITE_BASE_URL:-https://example.com}"
+        run: |
+          BASE_URL="${SITE_BASE_URL:-https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}}"
+          python -m calmtechrss run --api-config config/api.example.yml --site-base-url "$BASE_URL"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

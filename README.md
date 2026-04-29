@@ -16,6 +16,7 @@ python3 -m calmtechrss run --date 2026-04-28
 
 输出位置：
 
+- `site/index.html`
 - `site/issues/YYYY-MM-DD.html`
 - `site/feed.xml`
 - `site/clusters/YYYY-MM-DD.json`
@@ -121,7 +122,7 @@ pip install ".[embeddings]"
 1. 推送仓库到 GitHub。
 2. 在仓库 `Settings -> Pages` 中，把 Build and deployment 的 Source 设为 `GitHub Actions`。
 3. 在 `Settings -> Secrets and variables -> Actions` 中添加需要的 Secrets。
-4. 确认 `SITE_BASE_URL` 是最终站点地址，例如 `https://用户名.github.io/仓库名`。
+4. 确认 `SITE_BASE_URL` 是最终站点地址，例如 `https://用户名.github.io/仓库名`。如果不设置，Actions 会默认使用当前仓库的项目页地址。
 5. 到 `Actions -> Daily digest` 手动运行一次，确认生成和部署成功。
 
 建议设置：
@@ -130,3 +131,10 @@ pip install ".[embeddings]"
 - `SITE_BASE_URL`：建议设置为实际站点地址，否则 RSS 链接会指向默认示例地址
 
 如果需要更换 API 服务商、模型或向量模型，本地修改 `config/api.yml`；GitHub Actions 使用提交到仓库的 `config/api.example.yml`，因此部署环境的非密钥配置需要同步改这个模板文件。
+
+项目页部署后可以打开：
+
+- 首页：`https://用户名.github.io/仓库名/`
+- RSS：`https://用户名.github.io/仓库名/feed.xml`
+
+RSS 阅读器应订阅 `feed.xml` 的完整地址，而不是订阅项目页首页。

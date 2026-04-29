@@ -13,7 +13,7 @@ from calmtechrss.db import Database
 from calmtechrss.export import write_clusters_json
 from calmtechrss.llm import fallback_rewrite
 from calmtechrss.models import Article, Event
-from calmtechrss.render import render_issue
+from calmtechrss.render import render_index, render_issue
 from calmtechrss.rss import generate_feed, validate_feed
 
 
@@ -84,6 +84,14 @@ class CoreTest(unittest.TestCase):
             self.assertTrue(Path(html_path).exists())
             self.assertTrue(Path(feed_path).exists())
             validate_feed(feed_path)
+
+    def test_index_renders_feed_link(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            path = render_index(temp_dir, "2026-04-29", "https://example.com/calmTechRSS")
+            html = Path(path).read_text(encoding="utf-8")
+
+            self.assertIn("https://example.com/calmTechRSS/feed.xml", html)
+            self.assertIn("https://example.com/calmTechRSS/issues/2026-04-29.html", html)
 
     def test_clusters_json_exports_events(self) -> None:
         with TemporaryDirectory() as temp_dir:

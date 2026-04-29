@@ -13,7 +13,7 @@ from .env import load_env
 from .export import write_clusters_json
 from .fetcher import fetch_articles
 from .llm import LLMClient, PROMPT_VERSION
-from .render import render_issue
+from .render import render_index, render_issue
 from .rss import generate_feed
 
 LOGGER = logging.getLogger(__name__)
@@ -90,6 +90,7 @@ def run_pipeline(
 
         html_path = render_issue(output_dir, issue_date, rewrites, site_base_url)
         generate_feed(output_dir, site_base_url, issue_date)
+        render_index(output_dir, issue_date, site_base_url)
         db.save_issue(issue_date, selected_events, html_path)
     finally:
         db.close()
