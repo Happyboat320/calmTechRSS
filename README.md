@@ -146,3 +146,13 @@ https://用户名.github.io/仓库名
 ```
 
 RSS item 会指向当天 HTML 简报，同时在 `description` 和 `content:encoded` 中包含 3-5 条简报内容，方便 RSS 阅读器直接预览。
+
+## 历史页面和 RSS
+
+GitHub Actions 会恢复并保存 `site/issues/` 缓存，因此历史 HTML 简报会继续部署：
+
+```text
+https://用户名.github.io/仓库名/issues/YYYY-MM-DD.html
+```
+
+`feed.xml` 不保留历史 item，每次运行只输出当天这一条。这样 RSS 阅读器每天只收到一条新简报，但旧的 HTML 页面仍可通过原链接访问。

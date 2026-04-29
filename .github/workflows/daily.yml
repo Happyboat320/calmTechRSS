@@ -22,6 +22,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Restore historical issue pages
+        uses: actions/cache/restore@v4
+        with:
+          path: site/issues
+          key: calmtechrss-issues-${{ github.run_id }}
+          restore-keys: |
+            calmtechrss-issues-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -37,6 +44,11 @@ jobs:
         run: |
           BASE_URL="${SITE_BASE_URL:-https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}}"
           python -m calmtechrss run --api-config config/api.example.yml --site-base-url "$BASE_URL"
+      - name: Save historical issue pages
+        uses: actions/cache/save@v4
+        with:
+          path: site/issues
+          key: calmtechrss-issues-${{ github.run_id }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
