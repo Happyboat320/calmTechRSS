@@ -2,11 +2,10 @@
 # 复制为 config/api.yml 后使用。建议把密钥放在环境变量里，不要直接写进仓库文件。
 llm:
   enabled: true
-  base_url: https://api.openai.com/v1
+  base_url: https://opencode.ai/zen/go/v1
   api_key_env: OPENAI_API_KEY
-  api_key: ""
-  model: gpt-4.1-mini
-  temperature: 0.2
+  model: deepseek-v4-pro
+  temperature: 0.1
   timeout_seconds: 180
 
 # GitHub Actions 默认没有 GPU，明确使用 CPU。
