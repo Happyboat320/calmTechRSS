@@ -63,11 +63,11 @@ sources:
     url: https://www.qbitai.com/feed
     type: rss
     category: media
-    active: true
+    active: false
     weight: 0.9
   - name: InfoQ 中文
     url: https://www.infoq.cn/feed
     type: rss
     category: media
-    active: true
+    active: false
     weight: 0.9

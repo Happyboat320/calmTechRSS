@@ -39,7 +39,7 @@ class CoreTest(unittest.TestCase):
         sources = load_sources("config/sources.yml")
         names = {source.name for source in sources}
 
-        self.assertEqual(len(sources), 12)
+        self.assertEqual(len(sources), 10)
         self.assertEqual(
             names,
             {
@@ -53,8 +53,6 @@ class CoreTest(unittest.TestCase):
                 "TechCrunch AI",
                 "VentureBeat AI",
                 "MIT Technology Review AI",
-                "量子位",
-                "InfoQ 中文",
             },
         )
 
