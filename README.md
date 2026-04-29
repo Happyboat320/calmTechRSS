@@ -125,6 +125,12 @@ pip install ".[embeddings]"
 4. 确认 `SITE_BASE_URL` 是最终站点地址，例如 `https://用户名.github.io/仓库名`。如果不设置，Actions 会默认使用当前仓库的项目页地址。
 5. 到 `Actions -> Daily digest` 手动运行一次，确认生成和部署成功。
 
+工作流会在以下情况运行：
+
+- push 到 `main`
+- 每天定时任务
+- 手动 `workflow_dispatch`
+
 建议设置：
 
 - `OPENAI_API_KEY`：可选，不设置时使用本地降级摘要
