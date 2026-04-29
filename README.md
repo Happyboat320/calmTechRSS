@@ -138,3 +138,11 @@ pip install ".[embeddings]"
 - RSS：`https://用户名.github.io/仓库名/feed.xml`
 
 RSS 阅读器应订阅 `feed.xml` 的完整地址，而不是订阅项目页首页。
+
+`SITE_BASE_URL` 需要设置为项目页根地址，不要写到 `feed.xml`：
+
+```text
+https://用户名.github.io/仓库名
+```
+
+RSS item 会指向当天 HTML 简报，同时在 `description` 和 `content:encoded` 中包含 3-5 条简报内容，方便 RSS 阅读器直接预览。

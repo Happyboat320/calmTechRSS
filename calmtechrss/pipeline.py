@@ -89,7 +89,7 @@ def run_pipeline(
         rewrites = [(event, rewrites_by_hash[event.event_hash]) for event in selected_events]
 
         html_path = render_issue(output_dir, issue_date, rewrites, site_base_url)
-        generate_feed(output_dir, site_base_url, issue_date)
+        generate_feed(output_dir, site_base_url, issue_date, selected=rewrites)
         render_index(output_dir, issue_date, site_base_url)
         db.save_issue(issue_date, selected_events, html_path)
     finally:

@@ -79,10 +79,11 @@ class CoreTest(unittest.TestCase):
             rewrite = fallback_rewrite(event)
             output_dir = Path(temp_dir) / "site"
             html_path = render_issue(output_dir, "2026-04-28", [(event, rewrite)], "https://example.com")
-            feed_path = generate_feed(output_dir, "https://example.com", "2026-04-28")
+            feed_path = generate_feed(output_dir, "https://example.com", "2026-04-28", selected=[(event, rewrite)])
 
             self.assertTrue(Path(html_path).exists())
             self.assertTrue(Path(feed_path).exists())
+            self.assertIn("AI tooling update", Path(feed_path).read_text(encoding="utf-8"))
             validate_feed(feed_path)
 
     def test_index_renders_feed_link(self) -> None:
