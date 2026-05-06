@@ -39,7 +39,7 @@ class CoreTest(unittest.TestCase):
         sources = load_sources("config/sources.yml")
         names = {source.name for source in sources}
 
-        self.assertEqual(len(sources), 10)
+        self.assertEqual(len(sources), 14)
         self.assertEqual(
             names,
             {
@@ -53,6 +53,10 @@ class CoreTest(unittest.TestCase):
                 "TechCrunch AI",
                 "VentureBeat AI",
                 "MIT Technology Review AI",
+                "AI Era",
+                "量子位",
+                "AIBase News",
+                "QQ Tech",
             },
         )
 
@@ -103,6 +107,7 @@ class CoreTest(unittest.TestCase):
             self.assertEqual(payload["issue_date"], "2026-04-28")
             self.assertEqual(payload["event_count"], 1)
             self.assertEqual(payload["events"][0]["event_hash"], "e1")
+            self.assertFalse(payload["events"][0]["is_new"])
             self.assertEqual(payload["events"][0]["titles"], ["AI tooling update"])
 
     def test_incremental_cluster_assigns_to_existing_event(self) -> None:
@@ -136,6 +141,7 @@ class CoreTest(unittest.TestCase):
 
         self.assertEqual(len(updated), 1)
         self.assertEqual(updated[0].event_hash, initial[0].event_hash)
+        self.assertFalse(updated[0].is_new)
         self.assertEqual({article.url_hash for article in updated[0].articles}, {"h1", "h2"})
 
 

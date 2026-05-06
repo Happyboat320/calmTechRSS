@@ -59,11 +59,29 @@ sources:
     category: media
     active: true
     weight: 1.0
+  - name: AI Era
+    url: https://plink.anyfeeder.com/weixin/AI_era
+    type: rss
+    category: media
+    active: true
+    weight: 0.9
   - name: 量子位
     url: https://www.qbitai.com/feed
     type: rss
     category: media
-    active: false
+    active: true
+    weight: 0.9
+  - name: AIBase News
+    url: https://rsshub.app/aibase/news
+    type: rss
+    category: media
+    active: true
+    weight: 0.9
+  - name: QQ Tech
+    url: https://plink.anyfeeder.com/weixin/qqtech
+    type: rss
+    category: media
+    active: true
     weight: 0.9
   - name: InfoQ 中文
     url: https://www.infoq.cn/feed

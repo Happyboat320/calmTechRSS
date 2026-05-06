@@ -99,7 +99,12 @@ def incremental_cluster_articles(
             group = cluster["articles"]
             group.append(article)
             cluster["centroid"] = (cluster["centroid"] * (len(group) - 1) + vector) / len(group)
-            event = make_event(group, event_hash=str(cluster["event_hash"]), centroid=cluster["centroid"])
+            event = make_event(
+                group,
+                event_hash=str(cluster["event_hash"]),
+                centroid=cluster["centroid"],
+                is_new=False,
+            )
             changed_events[event.event_hash] = event
         else:
             remaining.append((article, vector))
@@ -123,7 +128,7 @@ def incremental_cluster_articles(
             groups.append(([article], vector))
 
     for group, centroid in groups:
-        event = make_event(group, centroid=centroid)
+        event = make_event(group, centroid=centroid, is_new=True)
         changed_events[event.event_hash] = event
     return sorted(changed_events.values(), key=lambda event: event.score, reverse=True)
 
@@ -136,6 +141,7 @@ def make_event(
     articles: list[Article],
     event_hash: str | None = None,
     centroid: np.ndarray | None = None,
+    is_new: bool = False,
 ) -> Event:
     hashes = sorted(article.url_hash for article in articles)
     event_hash = event_hash or sha256_text("\n".join(hashes))
@@ -144,7 +150,13 @@ def make_event(
     weight = sum(article.source_weight for article in articles)
     score = math.log1p(len(articles)) + source_count * 0.8 + official_bonus + weight * 0.2
     centroid_list = centroid.tolist() if centroid is not None else None
-    return Event(event_hash=event_hash, articles=articles, score=score, centroid=centroid_list)
+    return Event(
+        event_hash=event_hash,
+        articles=articles,
+        score=score,
+        centroid=centroid_list,
+        is_new=is_new,
+    )
 
 
 def compatible(article: Article, group: list[Article]) -> bool:

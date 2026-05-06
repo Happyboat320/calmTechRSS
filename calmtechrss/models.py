@@ -40,6 +40,7 @@ class Event:
     score: float = 0.0
     id: int | None = None
     centroid: list[float] | None = None
+    is_new: bool = False
 
 
 @dataclass

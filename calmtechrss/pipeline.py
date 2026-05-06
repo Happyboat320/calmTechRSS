@@ -57,12 +57,17 @@ def run_pipeline(
         )
         db.upsert_events(changed_events)
         events = db.get_events_with_recent_articles(since)
+        new_event_hashes = {event.event_hash for event in changed_events if event.is_new}
+        for event in events:
+            event.is_new = event.event_hash in new_event_hashes
         clusters_json_path = write_clusters_json(output_dir, issue_date, events)
         LOGGER.info("clusters_json=%s event_count=%s", clusters_json_path, len(events))
-        selected_hashes = set(llm.pick_event_hashes(events, limit=5))
-        selected_events = [event for event in events if event.event_hash in selected_hashes][:5]
-        if len(selected_events) < 3:
-            selected_events = events[: min(5, len(events))]
+        selected_events = sorted(
+            [event for event in changed_events if event.is_new],
+            key=lambda event: (len(event.articles), event.score),
+            reverse=True,
+        )[:5]
+        LOGGER.info("selected_new_events=%s", len(selected_events))
 
         rewrites_by_hash = {}
         rewrite_model = llm.model if llm.enabled else "fallback"
