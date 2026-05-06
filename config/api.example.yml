@@ -7,6 +7,7 @@ llm:
   model: deepseek-v4-pro
   temperature: 0.1
   timeout_seconds: 180
+  max_retries: 5
 
 # GitHub Actions 默认没有 GPU，明确使用 CPU。
 # 未安装 sentence-transformers 或模型不可用时，程序会自动回退到本地哈希向量。

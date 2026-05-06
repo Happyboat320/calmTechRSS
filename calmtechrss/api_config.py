@@ -16,6 +16,7 @@ class LLMSettings:
     model: str = "gpt-4.1-mini"
     temperature: float = 0.2
     timeout_seconds: float = 180.0
+    max_retries: int = 5
 
     @property
     def resolved_api_key(self) -> str:
@@ -59,6 +60,7 @@ def load_api_config(path: str | Path) -> ApiConfig:
             model=str(llm.get("model", "gpt-4.1-mini")),
             temperature=float(llm.get("temperature", 0.2)),
             timeout_seconds=float(llm.get("timeout_seconds", 180)),
+            max_retries=max(1, int(llm.get("max_retries", 5))),
         ),
         embedding=EmbeddingSettings(
             model=str(embedding.get("model", "intfloat/multilingual-e5-small")),

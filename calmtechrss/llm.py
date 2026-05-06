@@ -91,20 +91,34 @@ class LLMClient:
     def _chat_json(self, prompt: str) -> dict:
         import httpx
 
-        response = httpx.post(
-            f"{self.base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {self.api_key}"},
-            json={
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": "Return strict JSON only."},
-                    {"role": "user", "content": prompt},
-                ],
-                "temperature": self.settings.temperature,
-                "response_format": {"type": "json_object"},
-            },
-            timeout=self.settings.timeout_seconds,
-        )
+        response = None
+        for attempt in range(1, self.settings.max_retries + 1):
+            try:
+                response = httpx.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    json={
+                        "model": self.model,
+                        "messages": [
+                            {"role": "system", "content": "Return strict JSON only."},
+                            {"role": "user", "content": prompt},
+                        ],
+                        "temperature": self.settings.temperature,
+                        "response_format": {"type": "json_object"},
+                    },
+                    timeout=self.settings.timeout_seconds,
+                )
+                break
+            except httpx.TimeoutException:
+                if attempt >= self.settings.max_retries:
+                    raise
+                LOGGER.warning(
+                    "chat completion timed out; retrying attempt %s/%s",
+                    attempt + 1,
+                    self.settings.max_retries,
+                )
+        if response is None:
+            raise RuntimeError("chat completion did not return a response")
         response.raise_for_status()
         content = response.json()["choices"][0]["message"]["content"]
         return json.loads(content)

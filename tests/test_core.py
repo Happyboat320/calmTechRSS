@@ -5,13 +5,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from calmtechrss.api_config import load_api_config
+from calmtechrss.api_config import LLMSettings
 from calmtechrss.cluster import ExistingCluster, incremental_cluster_articles
 from calmtechrss.config import load_sources
 from calmtechrss.db import Database
 from calmtechrss.export import write_clusters_json
-from calmtechrss.llm import fallback_rewrite
+from calmtechrss.llm import LLMClient, fallback_rewrite
 from calmtechrss.models import Article, Event
 from calmtechrss.render import render_index, render_issue
 from calmtechrss.rss import generate_feed, validate_feed
@@ -68,6 +70,8 @@ class CoreTest(unittest.TestCase):
         self.assertEqual(config.embedding.model, "intfloat/multilingual-e5-small")
         self.assertEqual(config.embedding.device, "cpu")
         self.assertEqual(config.pipeline.max_workers, 4)
+        self.assertEqual(config.llm.timeout_seconds, 180)
+        self.assertEqual(config.llm.max_retries, 5)
 
     def test_database_initializes(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -143,6 +147,32 @@ class CoreTest(unittest.TestCase):
         self.assertEqual(updated[0].event_hash, initial[0].event_hash)
         self.assertFalse(updated[0].is_new)
         self.assertEqual({article.url_hash for article in updated[0].articles}, {"h1", "h2"})
+
+    def test_llm_retries_timeout(self) -> None:
+        import httpx
+
+        class Response:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict:
+                return {"choices": [{"message": {"content": "{\"ok\": true}"}}]}
+
+        calls = {"count": 0}
+
+        def fake_post(*args, **kwargs):
+            calls["count"] += 1
+            if calls["count"] < 3:
+                raise httpx.TimeoutException("timeout")
+            return Response()
+
+        client = LLMClient(
+            LLMSettings(api_key="test", timeout_seconds=180, max_retries=5)
+        )
+        with patch("httpx.post", side_effect=fake_post):
+            self.assertEqual(client._chat_json("test"), {"ok": True})
+
+        self.assertEqual(calls["count"], 3)
 
 
 if __name__ == "__main__":

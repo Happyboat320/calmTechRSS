@@ -47,6 +47,7 @@ llm:
   model: gpt-4.1-mini
   temperature: 0.2
   timeout_seconds: 180
+  max_retries: 5
 
 embedding:
   model: intfloat/multilingual-e5-small
