@@ -128,9 +128,9 @@ pip install ".[embeddings]"
 
 工作流会在以下情况运行：
 
-- push 到 `main`
-- 每天定时任务
-- 手动 `workflow_dispatch`
+- push 到 `main`：不恢复数据库缓存，相当于清空数据库后重新生成。
+- 每天定时任务：恢复并保存 `data/` 数据库缓存，用于增量入库和增量聚类。
+- 手动 `workflow_dispatch`：不恢复数据库缓存，行为和 push 一样。
 
 建议设置：
 
