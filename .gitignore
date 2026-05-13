@@ -8,5 +8,6 @@ __pycache__/
 .mypy_cache/
 data/
 site/
+experiments/fulltext_fetch/fulltext_report.json
 dist/
 *.egg-info/

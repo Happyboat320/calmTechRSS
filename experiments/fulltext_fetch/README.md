@@ -29,3 +29,18 @@
 
 这个实验目录不会修改数据库，也不会影响 `calmtechrss` 主流程。
 
+## 批量测试当前 RSS 源
+
+```bash
+.venv/bin/python experiments/fulltext_fetch/test_sources_fulltext.py --per-source 2 --candidate-hours 72
+```
+
+脚本会读取 `config/sources.yml` 的 active 源，先抓 RSS，再对每个源最多抽样 2 篇原文链接做全文抽取测试。
+
+报告输出到：
+
+```text
+experiments/fulltext_fetch/fulltext_report.json
+```
+
+该报告是本地测试产物，不提交到 Git。
