@@ -29,6 +29,16 @@
 
 这个实验目录不会修改数据库，也不会影响 `calmtechrss` 主流程。
 
+## 用无头浏览器测试
+
+如果普通 HTTP 请求被站点拒绝，且本机有 Chrome/Chromium，可以尝试公开页面的无头浏览器渲染：
+
+```bash
+.venv/bin/python experiments/fulltext_fetch/fetch_with_browser.py https://example.com/article
+```
+
+脚本使用 Chrome 的 `--headless --dump-dom` 获取渲染后的 DOM，再用 `trafilatura` 抽取正文。它只用于访问公开页面，不处理登录、验证码、Cloudflare challenge 或其它访问控制。
+
 ## 批量测试当前 RSS 源
 
 ```bash
