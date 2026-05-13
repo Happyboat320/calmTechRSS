@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .models import Article, Event
-from .text import sha256_text
+from .text import sha256_text, truncate
 
 
 @dataclass
@@ -134,7 +134,16 @@ def incremental_cluster_articles(
 
 
 def cluster_text(article: Article) -> str:
-    return f"{article.title}\n{article.summary[:400]}\n{article.content[:600]}"
+    return truncate(
+        "\n".join(
+            [
+                article.title,
+                article.summary,
+                article.content,
+            ]
+        ),
+        2000,
+    )
 
 
 def make_event(

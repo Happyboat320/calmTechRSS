@@ -12,6 +12,7 @@ from .db import Database
 from .env import load_env
 from .export import write_clusters_json
 from .fetcher import fetch_articles
+from .fulltext import enrich_articles_with_fulltext
 from .llm import LLMClient, PROMPT_VERSION
 from .render import render_index, render_issue
 from .rss import generate_feed
@@ -38,6 +39,10 @@ def run_pipeline(
         db.init()
         db.upsert_sources(sources)
         fetched = fetch_articles(sources, since, max_workers=api_config.pipeline.max_workers)
+        fetched = enrich_articles_with_fulltext(
+            fetched,
+            max_workers=api_config.pipeline.max_workers,
+        )
         saved = db.upsert_articles(fetched)
         LOGGER.info("fetched=%s saved_or_seen=%s", len(fetched), len(saved))
 

@@ -2,24 +2,19 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from html import unescape
 from html.parser import HTMLParser
 
 import httpx
 
 from .models import Article
+from .text import sha256_text
 
 LOGGER = logging.getLogger(__name__)
 
 USER_AGENT = "CalmTechRSS/0.1 (+https://github.com/)"
 MIN_FULLTEXT_LENGTH = 500
-
-
-@dataclass(frozen=True)
-class RewriteText:
-    text: str
-    source: str
 
 
 class TextExtractor(HTMLParser):
@@ -46,12 +41,30 @@ class TextExtractor(HTMLParser):
             self.text_parts.append(data)
 
 
-def article_rewrite_text(article: Article, timeout: float = 12.0) -> RewriteText:
-    fulltext = fetch_article_fulltext(article.url, timeout=timeout)
-    if fulltext:
-        return RewriteText(text=fulltext, source="fulltext")
-    fallback = article.summary or article.content
-    return RewriteText(text=fallback, source="feed")
+def enrich_articles_with_fulltext(
+    articles: list[Article],
+    max_workers: int = 4,
+    timeout: float = 12.0,
+) -> list[Article]:
+    if not articles:
+        return articles
+    workers = max(1, min(max_workers, len(articles)))
+    enriched = 0
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_article = {
+            executor.submit(fetch_article_fulltext, article.url, timeout): article
+            for article in articles
+        }
+        for future in as_completed(future_to_article):
+            article = future_to_article[future]
+            fulltext = future.result()
+            if not fulltext:
+                continue
+            article.content = fulltext
+            article.content_hash = sha256_text("\n".join([article.title, article.summary, article.content]))
+            enriched += 1
+    LOGGER.info("fulltext_enriched=%s total=%s", enriched, len(articles))
+    return articles
 
 
 def fetch_article_fulltext(url: str, timeout: float = 12.0) -> str:

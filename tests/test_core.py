@@ -9,11 +9,11 @@ from unittest.mock import patch
 
 from calmtechrss.api_config import load_api_config
 from calmtechrss.api_config import LLMSettings
-from calmtechrss.cluster import ExistingCluster, incremental_cluster_articles
+from calmtechrss.cluster import ExistingCluster, cluster_text, incremental_cluster_articles
 from calmtechrss.config import load_sources
 from calmtechrss.db import Database
 from calmtechrss.export import write_clusters_json
-from calmtechrss.fulltext import RewriteText, article_rewrite_text
+from calmtechrss.fulltext import enrich_articles_with_fulltext
 from calmtechrss.llm import LLMClient, fallback_rewrite
 from calmtechrss.models import Article, Event
 from calmtechrss.render import render_index, render_issue
@@ -175,7 +175,25 @@ class CoreTest(unittest.TestCase):
 
         self.assertEqual(calls["count"], 3)
 
-    def test_rewrite_uses_fulltext_when_available(self) -> None:
+    def test_fulltext_enrichment_updates_content_before_clustering(self) -> None:
+        class Response:
+            headers = {"content-type": "text/html; charset=utf-8"}
+            text = "<html><article><p>" + ("Full article body. " * 80) + "</p></article></html>"
+            url = "https://example.com/a"
+
+            def raise_for_status(self) -> None:
+                return None
+
+        event = make_event()
+        article = event.articles[0]
+        with patch("httpx.get", return_value=Response()):
+            enrich_articles_with_fulltext([article], max_workers=1)
+
+        self.assertIn("Full article body", article.content)
+        self.assertNotEqual(article.content_hash, "c1")
+        self.assertIn("Full article body", cluster_text(article))
+
+    def test_rewrite_uses_event_article_content(self) -> None:
         class CapturingClient(LLMClient):
             def __init__(self) -> None:
                 super().__init__(LLMSettings(api_key="test"))
@@ -191,25 +209,22 @@ class CoreTest(unittest.TestCase):
                 }
 
         event = make_event()
+        event.articles[0].content = "Full article body " * 300
         client = CapturingClient()
-        with patch(
-            "calmtechrss.llm.article_rewrite_text",
-            return_value=RewriteText(text="Full article body " * 300, source="fulltext"),
-        ):
-            rewrite = client.rewrite_event(event)
+        rewrite = client.rewrite_event(event)
 
         self.assertEqual(rewrite.title, "AI 工具更新")
-        self.assertIn('"text_source": "fulltext"', client.prompt)
+        self.assertIn('"content": "Full article body', client.prompt)
         self.assertIn("summary 80-150 字", client.prompt)
-        self.assertIn("不逐段概括、不扩写", client.prompt)
+        self.assertIn("不逐篇复述、不逐段概括、不扩写", client.prompt)
 
-    def test_rewrite_falls_back_to_feed_text(self) -> None:
+    def test_fulltext_enrichment_keeps_feed_content_on_failure(self) -> None:
         event = make_event()
         with patch("httpx.get", side_effect=Exception("network blocked")):
-            text = article_rewrite_text(event.articles[0])
+            enrich_articles_with_fulltext(event.articles, max_workers=1)
 
-        self.assertEqual(text.source, "feed")
-        self.assertEqual(text.text, "A concise update about AI tooling.")
+        self.assertEqual(event.articles[0].content, "")
+        self.assertEqual(event.articles[0].summary, "A concise update about AI tooling.")
 
 
 if __name__ == "__main__":

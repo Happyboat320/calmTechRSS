@@ -9,5 +9,6 @@ __pycache__/
 data/
 site/
 experiments/fulltext_fetch/fulltext_report*.json
+experiments/rss_samples/
 dist/
 *.egg-info/
