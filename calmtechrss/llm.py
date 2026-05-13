@@ -4,11 +4,12 @@ import json
 import logging
 
 from .api_config import LLMSettings
-from .models import Article, Event, Rewrite
+from .fulltext import RewriteText, article_rewrite_text
+from .models import Event, Rewrite
 from .text import remove_clickbait, truncate
 
 LOGGER = logging.getLogger(__name__)
-PROMPT_VERSION = "rewrite-v2"
+PROMPT_VERSION = "rewrite-v3-fulltext"
 
 
 class LLMClient:
@@ -58,18 +59,21 @@ class LLMClient:
             return fallback_rewrite(event)
         payload = []
         for article in event.articles[:8]:
+            rewrite_text = article_rewrite_text(article)
             payload.append(
                 {
                     "source": article.source_name,
                     "url": article.url,
                     "title": article.title,
-                    "summary": truncate(article.summary, 700),
-                    "content": truncate(article.content, 1200),
+                    "text_source": rewrite_text.source,
+                    "text": truncate(rewrite_text.text, text_limit(rewrite_text)),
                 }
             )
         prompt = (
             "基于以下来源，写一条中文科技日报事件。要求：只基于来源内容；不添加外部信息；"
             "语气平静、客观、克制；不要使用夸张词；不确定信息写入 uncertainty。"
+            "来源里的 text_source 为 fulltext 时表示 text 是抓取到的原文，feed 表示只能使用 RSS 摘要。"
+            "即使输入包含长原文，也只提炼事件本身，不逐段概括、不扩写。"
             "返回严格 JSON，字段为 title、summary、sources、uncertainty。summary 80-150 字。"
             "\n\n"
             + json.dumps(payload, ensure_ascii=False)
@@ -132,6 +136,12 @@ def validate_sources(raw: object, event: Event) -> list[dict[str, str]]:
             if isinstance(item, dict) and item.get("url") in valid_urls:
                 sources.append({"name": str(item.get("name") or valid_urls[item["url"]]), "url": item["url"]})
     return sources or [{"name": a.source_name, "url": a.url} for a in event.articles[:5]]
+
+
+def text_limit(rewrite_text: RewriteText) -> int:
+    if rewrite_text.source == "fulltext":
+        return 3000
+    return 900
 
 
 def fallback_rewrite(

@@ -13,6 +13,7 @@ from calmtechrss.cluster import ExistingCluster, incremental_cluster_articles
 from calmtechrss.config import load_sources
 from calmtechrss.db import Database
 from calmtechrss.export import write_clusters_json
+from calmtechrss.fulltext import RewriteText, article_rewrite_text
 from calmtechrss.llm import LLMClient, fallback_rewrite
 from calmtechrss.models import Article, Event
 from calmtechrss.render import render_index, render_issue
@@ -173,6 +174,42 @@ class CoreTest(unittest.TestCase):
             self.assertEqual(client._chat_json("test"), {"ok": True})
 
         self.assertEqual(calls["count"], 3)
+
+    def test_rewrite_uses_fulltext_when_available(self) -> None:
+        class CapturingClient(LLMClient):
+            def __init__(self) -> None:
+                super().__init__(LLMSettings(api_key="test"))
+                self.prompt = ""
+
+            def _chat_json(self, prompt: str) -> dict:
+                self.prompt = prompt
+                return {
+                    "title": "AI 工具更新",
+                    "summary": "一个主要 AI 工具发布了面向开发者的更新，重点是改进工作流集成和日常使用体验。",
+                    "sources": [{"name": "Example", "url": "https://example.com/a"}],
+                    "uncertainty": "",
+                }
+
+        event = make_event()
+        client = CapturingClient()
+        with patch(
+            "calmtechrss.llm.article_rewrite_text",
+            return_value=RewriteText(text="Full article body " * 300, source="fulltext"),
+        ):
+            rewrite = client.rewrite_event(event)
+
+        self.assertEqual(rewrite.title, "AI 工具更新")
+        self.assertIn('"text_source": "fulltext"', client.prompt)
+        self.assertIn("summary 80-150 字", client.prompt)
+        self.assertIn("不逐段概括、不扩写", client.prompt)
+
+    def test_rewrite_falls_back_to_feed_text(self) -> None:
+        event = make_event()
+        with patch("httpx.get", side_effect=Exception("network blocked")):
+            text = article_rewrite_text(event.articles[0])
+
+        self.assertEqual(text.source, "feed")
+        self.assertEqual(text.text, "A concise update about AI tooling.")
 
 
 if __name__ == "__main__":
