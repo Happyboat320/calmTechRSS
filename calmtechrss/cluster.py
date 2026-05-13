@@ -3,12 +3,16 @@ from __future__ import annotations
 import math
 import os
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from typing import Callable
 
 import numpy as np
 
 from .models import Article, Event
 from .text import sha256_text, truncate
+
+EventJudge = Callable[[Article, list[Article]], bool]
 
 
 @dataclass
@@ -34,24 +38,14 @@ def cluster_articles(
         cpu_threads=embedding_cpu_threads,
     )
     vectors = embedder.encode([cluster_text(article) for article in articles])
-    groups: list[tuple[list[Article], np.ndarray]] = []
+    groups: list[dict] = []
     for article, vector in zip(articles, vectors, strict=True):
-        best_index = -1
-        best_similarity = -1.0
-        for index, (_, centroid) in enumerate(groups):
-            similarity = cosine(vector, centroid)
-            if similarity > best_similarity:
-                best_similarity = similarity
-                best_index = index
-        if best_similarity >= 0.90 or (
-            best_similarity >= 0.86 and best_index >= 0 and compatible(article, groups[best_index][0])
-        ):
-            group, centroid = groups[best_index]
-            group.append(article)
-            groups[best_index] = (group, (centroid * (len(group) - 1) + vector) / len(group))
+        selected = judge_candidates(article, top_candidates(vector, groups), event_judge=None)
+        if selected is not None:
+            selected["cluster"]["articles"].append(article)
         else:
-            groups.append(([article], vector))
-    events = [make_event(group) for group, _ in groups]
+            groups.append({"articles": [article], "centroid": vector})
+    events = [make_event(group["articles"], centroid=group["centroid"]) for group in groups]
     return sorted(events, key=lambda event: event.score, reverse=True)
 
 
@@ -62,6 +56,8 @@ def incremental_cluster_articles(
     embedding_device: str = "cpu",
     embedding_batch_size: int = 32,
     embedding_cpu_threads: int = 4,
+    event_judge: EventJudge | None = None,
+    max_judge_workers: int = 4,
 ) -> list[Event]:
     if not articles:
         return []
@@ -73,7 +69,6 @@ def incremental_cluster_articles(
     )
     vectors = embedder.encode([cluster_text(article) for article in articles])
     changed_events: dict[str, Event] = {}
-    remaining: list[tuple[Article, np.ndarray]] = []
     existing = [
         {
             "event_hash": cluster.event_hash,
@@ -85,52 +80,71 @@ def incremental_cluster_articles(
     ]
 
     for article, vector in zip(articles, vectors, strict=True):
-        best_index = -1
-        best_similarity = -1.0
-        for index, cluster in enumerate(existing):
-            similarity = cosine(vector, cluster["centroid"])
-            if similarity > best_similarity:
-                best_similarity = similarity
-                best_index = index
-        if best_similarity >= 0.90 or (
-            best_similarity >= 0.86 and best_index >= 0 and compatible(article, existing[best_index]["articles"])
-        ):
-            cluster = existing[best_index]
-            group = cluster["articles"]
-            group.append(article)
-            cluster["centroid"] = (cluster["centroid"] * (len(group) - 1) + vector) / len(group)
+        existing_candidates = top_candidates(vector, existing)
+        selected = judge_candidates(article, existing_candidates, event_judge, max_judge_workers)
+        if selected is not None:
+            cluster = selected["cluster"]
+            cluster["articles"].append(article)
             event = make_event(
-                group,
+                cluster["articles"],
                 event_hash=str(cluster["event_hash"]),
                 centroid=cluster["centroid"],
                 is_new=False,
             )
             changed_events[event.event_hash] = event
         else:
-            remaining.append((article, vector))
-
-    groups: list[tuple[list[Article], np.ndarray]] = []
-    for article, vector in remaining:
-        best_index = -1
-        best_similarity = -1.0
-        for index, (_, centroid) in enumerate(groups):
-            similarity = cosine(vector, centroid)
-            if similarity > best_similarity:
-                best_similarity = similarity
-                best_index = index
-        if best_similarity >= 0.90 or (
-            best_similarity >= 0.86 and best_index >= 0 and compatible(article, groups[best_index][0])
-        ):
-            group, centroid = groups[best_index]
-            group.append(article)
-            groups[best_index] = (group, (centroid * (len(group) - 1) + vector) / len(group))
-        else:
-            groups.append(([article], vector))
-
-    for group, centroid in groups:
-        event = make_event(group, centroid=centroid, is_new=True)
-        changed_events[event.event_hash] = event
+            new_cluster = {
+                "event_hash": make_event([article]).event_hash,
+                "articles": [article],
+                "centroid": vector,
+            }
+            existing.append(new_cluster)
+            event = make_event([article], event_hash=str(new_cluster["event_hash"]), centroid=vector, is_new=True)
+            changed_events[event.event_hash] = event
     return sorted(changed_events.values(), key=lambda event: event.score, reverse=True)
+
+
+def top_candidates(
+    vector: np.ndarray,
+    clusters: list[dict],
+    limit: int = 5,
+    threshold: float = 0.75,
+) -> list[dict]:
+    scored = []
+    for cluster in clusters:
+        similarity = cosine(vector, cluster["centroid"])
+        if similarity > threshold:
+            scored.append({"cluster": cluster, "similarity": similarity})
+    return sorted(scored, key=lambda item: item["similarity"], reverse=True)[:limit]
+
+
+def judge_candidates(
+    article: Article,
+    candidates: list[dict],
+    event_judge: EventJudge | None,
+    max_workers: int = 4,
+) -> dict | None:
+    if not candidates:
+        return None
+    if event_judge is None:
+        return candidates[0]
+    approved: list[dict] = []
+    workers = max(1, min(max_workers, len(candidates)))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_candidate = {
+            executor.submit(event_judge, article, candidate["cluster"]["articles"]): candidate
+            for candidate in candidates
+        }
+        for future in as_completed(future_to_candidate):
+            candidate = future_to_candidate[future]
+            try:
+                if future.result():
+                    approved.append(candidate)
+            except Exception:
+                continue
+    if not approved:
+        return None
+    return sorted(approved, key=lambda item: item["similarity"], reverse=True)[0]
 
 
 def cluster_text(article: Article) -> str:

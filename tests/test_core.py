@@ -14,7 +14,7 @@ from calmtechrss.config import load_sources
 from calmtechrss.db import Database
 from calmtechrss.export import write_clusters_json
 from calmtechrss.fulltext import enrich_articles_with_fulltext
-from calmtechrss.llm import LLMClient, fallback_rewrite
+from calmtechrss.llm import EventJudgeClient, LLMClient, fallback_rewrite
 from calmtechrss.models import Article, Event
 from calmtechrss.render import render_index, render_issue
 from calmtechrss.rss import generate_feed, validate_feed
@@ -73,6 +73,7 @@ class CoreTest(unittest.TestCase):
         self.assertEqual(config.pipeline.max_workers, 4)
         self.assertEqual(config.llm.timeout_seconds, 180)
         self.assertEqual(config.llm.max_retries, 5)
+        self.assertEqual(config.judge.model, "deepseek-v4-flash")
 
     def test_database_initializes(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -149,6 +150,41 @@ class CoreTest(unittest.TestCase):
         self.assertFalse(updated[0].is_new)
         self.assertEqual({article.url_hash for article in updated[0].articles}, {"h1", "h2"})
 
+    def test_incremental_cluster_uses_event_judge(self) -> None:
+        existing_article = make_event().articles[0]
+        initial = incremental_cluster_articles([existing_article], [], embedding_model="hashing")
+        new_article = Article(
+            title="AI tooling update",
+            url="https://example.com/c",
+            source_name="Example 3",
+            source_category="media",
+            published_at_utc=datetime.now(timezone.utc),
+            summary="A concise update about AI tooling.",
+            content="",
+            source_article_id="c",
+            url_hash="h3",
+            content_hash="c3",
+            source_weight=1.0,
+        )
+
+        updated = incremental_cluster_articles(
+            [new_article],
+            [
+                ExistingCluster(
+                    event_hash=initial[0].event_hash,
+                    articles=initial[0].articles,
+                    centroid=initial[0].centroid or [],
+                )
+            ],
+            embedding_model="hashing",
+            event_judge=lambda article, group: False,
+            max_judge_workers=2,
+        )
+
+        self.assertEqual(len(updated), 1)
+        self.assertTrue(updated[0].is_new)
+        self.assertNotEqual(updated[0].event_hash, initial[0].event_hash)
+
     def test_llm_retries_timeout(self) -> None:
         import httpx
 
@@ -174,6 +210,20 @@ class CoreTest(unittest.TestCase):
             self.assertEqual(client._chat_json("test"), {"ok": True})
 
         self.assertEqual(calls["count"], 3)
+
+    def test_event_judge_returns_model_decision(self) -> None:
+        class CapturingJudge(EventJudgeClient):
+            def __init__(self) -> None:
+                super().__init__(LLMSettings(api_key="test", model="deepseek-v4-flash"))
+                self.prompt = ""
+
+            def _chat_json(self, prompt: str) -> dict:
+                self.prompt = prompt
+                return {"same_event": True}
+
+        judge = CapturingJudge()
+        self.assertTrue(judge.same_event(make_event().articles[0], make_event().articles))
+        self.assertIn("同一个具体事件", judge.prompt)
 
     def test_fulltext_enrichment_updates_content_before_clustering(self) -> None:
         class Response:

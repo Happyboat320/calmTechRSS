@@ -9,6 +9,14 @@ llm:
   timeout_seconds: 180
   max_retries: 5
 
+# 聚类判别模型。默认沿用 llm 的 base_url 和 api_key_env，只覆盖模型名。
+judge:
+  enabled: true
+  model: deepseek-v4-flash
+  temperature: 0.0
+  timeout_seconds: 180
+  max_retries: 5
+
 # GitHub Actions 默认没有 GPU，明确使用 CPU。
 # 未安装 sentence-transformers 或模型不可用时，程序会自动回退到本地哈希向量。
 embedding:

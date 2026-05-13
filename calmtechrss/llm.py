@@ -4,7 +4,7 @@ import json
 import logging
 
 from .api_config import LLMSettings
-from .models import Event, Rewrite
+from .models import Article, Event, Rewrite
 from .text import remove_clickbait, truncate
 
 LOGGER = logging.getLogger(__name__)
@@ -126,6 +126,33 @@ class LLMClient:
         return json.loads(content)
 
 
+class EventJudgeClient(LLMClient):
+    @property
+    def enabled(self) -> bool:
+        return self.settings.enabled and bool(self.api_key)
+
+    def same_event(self, article: Article, existing_articles: list[Article]) -> bool:
+        if not self.enabled:
+            return True
+        payload = {
+            "new_article": judge_article_payload(article),
+            "existing_event": [judge_article_payload(item) for item in existing_articles[:5]],
+        }
+        prompt = (
+            "判断 new_article 和 existing_event 是否在报道同一个具体事件。"
+            "同一个事件要求核心主体、动作和时间背景一致；同一公司或同一领域的不同新闻不是同一个事件。"
+            "跨中英文标题或摘要表达相同含义时可以判为同一个事件。"
+            "只返回严格 JSON：{\"same_event\":true 或 false}。\n\n"
+            + json.dumps(payload, ensure_ascii=False)
+        )
+        try:
+            data = self._chat_json(prompt)
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("event judge failed for %s: %s", article.url, exc)
+            return False
+        return bool(data.get("same_event", False))
+
+
 def validate_sources(raw: object, event: Event) -> list[dict[str, str]]:
     valid_urls = {article.url: article.source_name for article in event.articles}
     sources: list[dict[str, str]] = []
@@ -134,6 +161,17 @@ def validate_sources(raw: object, event: Event) -> list[dict[str, str]]:
             if isinstance(item, dict) and item.get("url") in valid_urls:
                 sources.append({"name": str(item.get("name") or valid_urls[item["url"]]), "url": item["url"]})
     return sources or [{"name": a.source_name, "url": a.url} for a in event.articles[:5]]
+
+
+def judge_article_payload(article: Article) -> dict[str, str]:
+    return {
+        "source": article.source_name,
+        "title": article.title,
+        "summary": truncate(article.summary, 500),
+        "content": truncate(article.content, 900),
+        "url": article.url,
+    }
+
 
 def fallback_rewrite(
     event: Event,

@@ -13,7 +13,7 @@ from .env import load_env
 from .export import write_clusters_json
 from .fetcher import fetch_articles
 from .fulltext import enrich_articles_with_fulltext
-from .llm import LLMClient, PROMPT_VERSION
+from .llm import EventJudgeClient, LLMClient, PROMPT_VERSION
 from .render import render_index, render_issue
 from .rss import generate_feed
 
@@ -48,6 +48,7 @@ def run_pipeline(
 
         candidates = db.get_unassigned_articles_since(since)
         llm = LLMClient(api_config.llm)
+        judge = EventJudgeClient(api_config.judge.resolved(api_config.llm))
         existing_clusters = [
             ExistingCluster(event_hash=event_hash, articles=articles, centroid=centroid)
             for event_hash, articles, centroid in db.get_existing_clusters()
@@ -59,6 +60,8 @@ def run_pipeline(
             embedding_device=api_config.embedding.device,
             embedding_batch_size=api_config.embedding.batch_size,
             embedding_cpu_threads=api_config.embedding.cpu_threads,
+            event_judge=judge.same_event if judge.enabled else None,
+            max_judge_workers=api_config.pipeline.max_workers,
         )
         db.upsert_events(changed_events)
         events = db.get_events_with_recent_articles(since)

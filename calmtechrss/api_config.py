@@ -24,6 +24,30 @@ class LLMSettings:
 
 
 @dataclass(frozen=True)
+class JudgeSettings:
+    enabled: bool = True
+    base_url: str = ""
+    api_key_env: str = ""
+    api_key: str = ""
+    model: str = "deepseek-v4-flash"
+    temperature: float = 0.0
+    timeout_seconds: float = 180.0
+    max_retries: int = 5
+
+    def resolved(self, llm: LLMSettings) -> LLMSettings:
+        return LLMSettings(
+            enabled=self.enabled and llm.enabled,
+            base_url=self.base_url or llm.base_url,
+            api_key_env=self.api_key_env or llm.api_key_env,
+            api_key=self.api_key or llm.api_key,
+            model=self.model,
+            temperature=self.temperature,
+            timeout_seconds=self.timeout_seconds,
+            max_retries=self.max_retries,
+        )
+
+
+@dataclass(frozen=True)
 class EmbeddingSettings:
     model: str = "intfloat/multilingual-e5-small"
     device: str = "cpu"
@@ -39,6 +63,7 @@ class PipelineSettings:
 @dataclass(frozen=True)
 class ApiConfig:
     llm: LLMSettings = LLMSettings()
+    judge: JudgeSettings = JudgeSettings()
     embedding: EmbeddingSettings = EmbeddingSettings()
     pipeline: PipelineSettings = PipelineSettings()
 
@@ -49,18 +74,30 @@ def load_api_config(path: str | Path) -> ApiConfig:
         return ApiConfig()
     raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     llm = raw.get("llm") or {}
+    judge = raw.get("judge") or {}
     embedding = raw.get("embedding") or {}
     pipeline = raw.get("pipeline") or {}
+    llm_settings = LLMSettings(
+        enabled=bool(llm.get("enabled", True)),
+        base_url=str(llm.get("base_url", "https://api.openai.com/v1")),
+        api_key_env=str(llm.get("api_key_env", "OPENAI_API_KEY")),
+        api_key=str(llm.get("api_key", "")),
+        model=str(llm.get("model", "gpt-4.1-mini")),
+        temperature=float(llm.get("temperature", 0.2)),
+        timeout_seconds=float(llm.get("timeout_seconds", 180)),
+        max_retries=max(1, int(llm.get("max_retries", 5))),
+    )
     return ApiConfig(
-        llm=LLMSettings(
-            enabled=bool(llm.get("enabled", True)),
-            base_url=str(llm.get("base_url", "https://api.openai.com/v1")),
-            api_key_env=str(llm.get("api_key_env", "OPENAI_API_KEY")),
-            api_key=str(llm.get("api_key", "")),
-            model=str(llm.get("model", "gpt-4.1-mini")),
-            temperature=float(llm.get("temperature", 0.2)),
-            timeout_seconds=float(llm.get("timeout_seconds", 180)),
-            max_retries=max(1, int(llm.get("max_retries", 5))),
+        llm=llm_settings,
+        judge=JudgeSettings(
+            enabled=bool(judge.get("enabled", True)),
+            base_url=str(judge.get("base_url", "")),
+            api_key_env=str(judge.get("api_key_env", "")),
+            api_key=str(judge.get("api_key", "")),
+            model=str(judge.get("model", "deepseek-v4-flash")),
+            temperature=float(judge.get("temperature", 0.0)),
+            timeout_seconds=float(judge.get("timeout_seconds", 180)),
+            max_retries=max(1, int(judge.get("max_retries", 5))),
         ),
         embedding=EmbeddingSettings(
             model=str(embedding.get("model", "intfloat/multilingual-e5-small")),
