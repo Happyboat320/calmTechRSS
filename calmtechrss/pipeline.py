@@ -15,7 +15,13 @@ from .export import write_clusters_json
 from .fetcher import fetch_articles
 from .fulltext import enrich_articles_with_fulltext
 from .llm import EventJudgeClient, LLMClient, PROMPT_VERSION
-from .render import prune_issue_pages, render_index, render_issue
+from .render import (
+    prune_issue_pages,
+    render_cluster_log,
+    render_index,
+    render_issue,
+    render_original_pages,
+)
 from .rss import generate_feed
 
 LOGGER = logging.getLogger(__name__)
@@ -113,7 +119,32 @@ def run_pipeline(
 
         rewrites = [(event, rewrites_by_hash[event.event_hash]) for event in selected_events]
 
-        html_path = render_issue(output_dir, issue_date, rewrites, site_base_url)
+        original_links = render_original_pages(output_dir, issue_date, rewrites, site_base_url)
+        log_url = render_cluster_log(
+            output_dir,
+            issue_date,
+            events,
+            changed_events,
+            selected_events,
+            site_base_url,
+            stats={
+                "fetched": len(fetched),
+                "saved_or_seen": len(saved),
+                "candidates": len(candidates),
+                "changed_clusters": len(changed_events),
+                "new_clusters": len(new_events),
+                "selected_clusters": len(selected_events),
+                "clusters_json": clusters_json_path,
+            },
+        )
+        html_path = render_issue(
+            output_dir,
+            issue_date,
+            rewrites,
+            site_base_url,
+            original_links=original_links,
+            log_url=log_url,
+        )
         db.save_issue(issue_date, selected_events, html_path)
         issue_entries = db.get_issue_entries(10, PROMPT_VERSION, rewrite_model)
         generate_feed(output_dir, site_base_url, issue_date, selected=rewrites, issues=issue_entries)

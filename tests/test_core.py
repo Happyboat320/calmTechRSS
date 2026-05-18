@@ -18,7 +18,7 @@ from calmtechrss.export import write_clusters_json
 from calmtechrss.fulltext import enrich_articles_with_fulltext
 from calmtechrss.llm import EventJudgeClient, LLMClient, fallback_rewrite
 from calmtechrss.models import Article, Event
-from calmtechrss.render import render_index, render_issue
+from calmtechrss.render import render_cluster_log, render_index, render_issue, render_original_pages
 from calmtechrss.rss import generate_feed, validate_feed
 
 
@@ -101,6 +101,42 @@ class CoreTest(unittest.TestCase):
             self.assertTrue(Path(feed_path).exists())
             self.assertIn("AI tooling update", Path(feed_path).read_text(encoding="utf-8"))
             validate_feed(feed_path)
+
+    def test_original_pages_and_cluster_log_render(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            event = make_event()
+            rewrite = fallback_rewrite(event)
+            output_dir = Path(temp_dir) / "site"
+            links = render_original_pages(
+                output_dir,
+                "2026-05-18",
+                [(event, rewrite)],
+                "https://example.com/calmTechRSS",
+            )
+            log_url = render_cluster_log(
+                output_dir,
+                "2026-05-18",
+                [event],
+                [event],
+                [event],
+                "https://example.com/calmTechRSS",
+                {"new_clusters": 1},
+            )
+            html_path = render_issue(
+                output_dir,
+                "2026-05-18",
+                [(event, rewrite)],
+                "https://example.com/calmTechRSS",
+                original_links=links,
+                log_url=log_url,
+            )
+            html = Path(html_path).read_text(encoding="utf-8")
+
+            self.assertIn("https://example.com/calmTechRSS/issues/2026-05-18-e1", links["e1"])
+            self.assertTrue((output_dir / "issues" / "2026-05-18-e1" / "index.html").exists())
+            self.assertTrue((output_dir / "issues" / "2026-05-18-log" / "index.html").exists())
+            self.assertIn("本日原文归档", html)
+            self.assertIn("本次聚类日志", html)
 
     def test_feed_keeps_multiple_issue_items(self) -> None:
         with TemporaryDirectory() as temp_dir:
