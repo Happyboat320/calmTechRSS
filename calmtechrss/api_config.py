@@ -50,9 +50,12 @@ class JudgeSettings:
 @dataclass(frozen=True)
 class EmbeddingSettings:
     model: str = "intfloat/multilingual-e5-small"
+    models: tuple[str, ...] = ("intfloat/multilingual-e5-small", "sentence-transformers/all-MiniLM-L6-v2")
     device: str = "cpu"
     batch_size: int = 32
     cpu_threads: int = 4
+    max_chars: int = 2000
+    similarity_threshold: float = 0.8
 
 
 @dataclass(frozen=True)
@@ -87,6 +90,18 @@ def load_api_config(path: str | Path) -> ApiConfig:
         timeout_seconds=float(llm.get("timeout_seconds", 180)),
         max_retries=max(1, int(llm.get("max_retries", 5))),
     )
+    embedding_models = tuple(
+        str(item)
+        for item in embedding.get(
+            "models",
+            [
+                embedding.get("model", "intfloat/multilingual-e5-small"),
+                "sentence-transformers/all-MiniLM-L6-v2",
+            ],
+        )
+    )
+    if not embedding_models:
+        embedding_models = (str(embedding.get("model", "intfloat/multilingual-e5-small")),)
     return ApiConfig(
         llm=llm_settings,
         judge=JudgeSettings(
@@ -101,9 +116,12 @@ def load_api_config(path: str | Path) -> ApiConfig:
         ),
         embedding=EmbeddingSettings(
             model=str(embedding.get("model", "intfloat/multilingual-e5-small")),
+            models=embedding_models,
             device=str(embedding.get("device", "cpu")),
             batch_size=int(embedding.get("batch_size", 32)),
             cpu_threads=int(embedding.get("cpu_threads", 4)),
+            max_chars=max(1, int(embedding.get("max_chars", 2000))),
+            similarity_threshold=float(embedding.get("similarity_threshold", 0.8)),
         ),
         pipeline=PipelineSettings(
             max_workers=max(1, int(pipeline.get("max_workers", 4))),

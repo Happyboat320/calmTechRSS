@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, time, timezone
 from email.utils import format_datetime
+from html import escape
 from pathlib import Path
 from typing import TYPE_CHECKING
 from xml.etree import ElementTree as ET
@@ -17,6 +18,7 @@ def generate_feed(
     site_base_url: str,
     issue_date: str,
     selected: list[tuple["Event", "Rewrite"]] | None = None,
+    issues: list[tuple[str, list[tuple["Event", "Rewrite"]]]] | None = None,
     title: str = "Calm Tech RSS",
     description: str = "平静、客观、克制的中文科技日报。",
 ) -> str:
@@ -24,21 +26,26 @@ def generate_feed(
     output.mkdir(parents=True, exist_ok=True)
     ET.register_namespace("content", CONTENT_NS)
     base = site_base_url.rstrip("/")
-    issue_url = f"{base}/issues/{issue_date}.html"
+    issue_entries = issues or [(issue_date, selected or [])]
     rss = ET.Element("rss", version="2.0")
     channel = ET.SubElement(rss, "channel")
     ET.SubElement(channel, "title").text = title
     ET.SubElement(channel, "link").text = base
     ET.SubElement(channel, "description").text = description
     ET.SubElement(channel, "language").text = "zh-CN"
-    item = ET.SubElement(channel, "item")
-    ET.SubElement(item, "title").text = f"{issue_date} 科技简报"
-    ET.SubElement(item, "link").text = issue_url
-    ET.SubElement(item, "guid").text = issue_url
-    pub_dt = datetime.combine(datetime.fromisoformat(issue_date).date(), time(8, 0), timezone.utc)
-    ET.SubElement(item, "pubDate").text = format_datetime(pub_dt, usegmt=True)
-    ET.SubElement(item, "description").text = build_description(selected)
-    ET.SubElement(item, f"{{{CONTENT_NS}}}encoded").text = build_content_html(selected, issue_url)
+    for entry_date, entry_selected in issue_entries:
+        issue_url = f"{base}/issues/{entry_date}.html"
+        item = ET.SubElement(channel, "item")
+        ET.SubElement(item, "title").text = f"{entry_date} 科技简报"
+        ET.SubElement(item, "link").text = issue_url
+        ET.SubElement(item, "guid").text = issue_url
+        pub_dt = datetime.combine(datetime.fromisoformat(entry_date).date(), time(0, 10), timezone.utc)
+        ET.SubElement(item, "pubDate").text = format_datetime(pub_dt, usegmt=True)
+        ET.SubElement(item, "description").text = build_description(entry_selected)
+        ET.SubElement(item, f"{{{CONTENT_NS}}}encoded").text = build_content_html(
+            entry_selected,
+            issue_url,
+        )
     tree = ET.ElementTree(rss)
     ET.indent(tree, space="  ")
     path = output / "feed.xml"
@@ -71,11 +78,11 @@ def build_content_html(selected: list[tuple["Event", "Rewrite"]] | None, issue_u
     parts = ["<ol>"]
     for _, rewrite in selected:
         sources = " ".join(
-            f'<a href="{source["url"]}">{source["name"]}</a>' for source in rewrite.sources
+            f'<a href="{escape(source["url"], quote=True)}">{escape(source["name"])}</a>' for source in rewrite.sources
         )
-        uncertainty = f"<p>{rewrite.uncertainty}</p>" if rewrite.uncertainty else ""
+        uncertainty = f"<p>{escape(rewrite.uncertainty)}</p>" if rewrite.uncertainty else ""
         parts.append(
-            f"<li><h2>{rewrite.title}</h2><p>{rewrite.summary}</p>{uncertainty}<p>{sources}</p></li>"
+            f"<li><h2>{escape(rewrite.title)}</h2><p>{escape(rewrite.summary)}</p>{uncertainty}<p>{sources}</p></li>"
         )
     parts.append("</ol>")
     parts.append(f'<p><a href="{issue_url}">阅读全文</a></p>')

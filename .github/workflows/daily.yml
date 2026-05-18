@@ -26,6 +26,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Restore historical issue pages
+        if: github.event_name == 'schedule'
         uses: actions/cache/restore@v4
         with:
           path: site/issues
@@ -45,6 +46,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install --index-url https://download.pytorch.org/whl/cpu torch
           pip install -r requirements.txt "sentence-transformers>=2.7.0"
+      - name: Clear generated state on push
+        if: github.event_name == 'push'
+        run: |
+          rm -rf data site/issues site/clusters site/feed.xml site/index.html
       - name: Generate digest
         env:
           CUDA_VISIBLE_DEVICES: ""
@@ -56,6 +61,7 @@ jobs:
           BASE_URL="${SITE_BASE_URL:-https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}}"
           python -m calmtechrss run --api-config config/api.example.yml --site-base-url "$BASE_URL"
       - name: Save historical issue pages
+        if: github.event_name == 'schedule'
         uses: actions/cache/save@v4
         with:
           path: site/issues

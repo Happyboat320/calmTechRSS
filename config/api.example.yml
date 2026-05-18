@@ -21,9 +21,14 @@ judge:
 # 未安装 sentence-transformers 或模型不可用时，程序会自动回退到本地哈希向量。
 embedding:
   model: intfloat/multilingual-e5-small
+  models:
+    - intfloat/multilingual-e5-small
+    - sentence-transformers/all-MiniLM-L6-v2
   device: cpu
   batch_size: 32
   cpu_threads: 4
+  max_chars: 2000
+  similarity_threshold: 0.8
 
 # 批处理并发设置。
 pipeline:

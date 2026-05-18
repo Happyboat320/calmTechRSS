@@ -19,7 +19,11 @@ EventJudge = Callable[[Article, list[Article]], bool]
 class ExistingCluster:
     event_hash: str
     articles: list[Article]
-    centroid: list[float]
+    centroid: list[float] | dict[str, list[float]]
+    vectors: dict[str, list[float]] | None = None
+
+
+ArticleVectorMap = dict[str, np.ndarray]
 
 
 def cluster_articles(
@@ -31,21 +35,21 @@ def cluster_articles(
 ) -> list[Event]:
     if not articles:
         return []
-    embedder = Embedder(
-        model_name=embedding_model,
+    vectors = encode_articles(
+        articles,
+        models=[embedding_model] if embedding_model else None,
         device=embedding_device,
         batch_size=embedding_batch_size,
         cpu_threads=embedding_cpu_threads,
     )
-    vectors = embedder.encode([cluster_text(article) for article in articles])
     groups: list[dict] = []
-    for article, vector in zip(articles, vectors, strict=True):
-        selected = judge_candidates(article, top_candidates(vector, groups), event_judge=None)
+    for article, vector_map in zip(articles, vectors, strict=True):
+        selected = judge_candidates(article, top_candidates(vector_map, groups), event_judge=None)
         if selected is not None:
             selected["cluster"]["articles"].append(article)
         else:
-            groups.append({"articles": [article], "centroid": vector})
-    events = [make_event(group["articles"], centroid=group["centroid"]) for group in groups]
+            groups.append({"articles": [article], "vectors": vector_map})
+    events = [make_event(group["articles"], vectors=group["vectors"]) for group in groups]
     return sorted(events, key=lambda event: event.score, reverse=True)
 
 
@@ -53,34 +57,40 @@ def incremental_cluster_articles(
     articles: list[Article],
     existing_clusters: list[ExistingCluster],
     embedding_model: str | None = None,
+    embedding_models: list[str] | tuple[str, ...] | None = None,
     embedding_device: str = "cpu",
     embedding_batch_size: int = 32,
     embedding_cpu_threads: int = 4,
+    embedding_max_chars: int = 2000,
+    similarity_threshold: float = 0.8,
     event_judge: EventJudge | None = None,
     max_judge_workers: int = 4,
 ) -> list[Event]:
     if not articles:
         return []
-    embedder = Embedder(
-        model_name=embedding_model,
+    model_names = list(embedding_models or ([embedding_model] if embedding_model else []))
+    vectors = encode_articles(
+        articles,
+        models=model_names or None,
         device=embedding_device,
         batch_size=embedding_batch_size,
         cpu_threads=embedding_cpu_threads,
+        max_chars=embedding_max_chars,
     )
-    vectors = embedder.encode([cluster_text(article) for article in articles])
     changed_events: dict[str, Event] = {}
     existing = [
         {
             "event_hash": cluster.event_hash,
             "articles": list(cluster.articles),
-            "centroid": np.array(cluster.centroid, dtype=float),
+            "vectors": cluster_vectors(cluster, model_names),
         }
         for cluster in existing_clusters
-        if cluster.centroid
+        if cluster.centroid or cluster.vectors
     ]
 
-    for article, vector in zip(articles, vectors, strict=True):
-        existing_candidates = top_candidates(vector, existing)
+    unassigned: list[tuple[Article, ArticleVectorMap]] = []
+    for article, vector_map in zip(articles, vectors, strict=True):
+        existing_candidates = top_candidates(vector_map, existing, threshold=similarity_threshold)
         selected = judge_candidates(article, existing_candidates, event_judge, max_judge_workers)
         if selected is not None:
             cluster = selected["cluster"]
@@ -88,34 +98,60 @@ def incremental_cluster_articles(
             event = make_event(
                 cluster["articles"],
                 event_hash=str(cluster["event_hash"]),
-                centroid=cluster["centroid"],
+                vectors=cluster["vectors"],
                 is_new=False,
             )
             changed_events[event.event_hash] = event
         else:
-            new_cluster = {
-                "event_hash": make_event([article]).event_hash,
-                "articles": [article],
-                "centroid": vector,
-            }
-            existing.append(new_cluster)
-            event = make_event([article], event_hash=str(new_cluster["event_hash"]), centroid=vector, is_new=True)
-            changed_events[event.event_hash] = event
+            unassigned.append((article, vector_map))
+
+    for group in merge_new_articles(unassigned, threshold=similarity_threshold):
+        event = make_event(group["articles"], vectors=group["vectors"], is_new=True)
+        changed_events[event.event_hash] = event
     return sorted(changed_events.values(), key=lambda event: event.score, reverse=True)
 
 
 def top_candidates(
-    vector: np.ndarray,
+    vector: ArticleVectorMap,
     clusters: list[dict],
     limit: int = 5,
-    threshold: float = 0.75,
+    threshold: float = 0.8,
 ) -> list[dict]:
     scored = []
     for cluster in clusters:
-        similarity = cosine(vector, cluster["centroid"])
-        if similarity > threshold:
-            scored.append({"cluster": cluster, "similarity": similarity})
+        similarities = vector_similarities(vector, cluster["vectors"])
+        if similarities and all(item > threshold for item in similarities.values()):
+            scored.append(
+                {
+                    "cluster": cluster,
+                    "similarity": sum(similarities.values()) / len(similarities),
+                }
+            )
     return sorted(scored, key=lambda item: item["similarity"], reverse=True)[:limit]
+
+
+def merge_new_articles(
+    items: list[tuple[Article, ArticleVectorMap]],
+    threshold: float = 0.8,
+) -> list[dict]:
+    groups = [{"articles": [article], "vectors": vectors} for article, vectors in items]
+    changed = True
+    while changed:
+        changed = False
+        for left_index in range(len(groups)):
+            if changed:
+                break
+            for right_index in range(left_index + 1, len(groups)):
+                similarities = vector_similarities(
+                    groups[left_index]["vectors"],
+                    groups[right_index]["vectors"],
+                )
+                if similarities and all(item > threshold for item in similarities.values()):
+                    groups[left_index]["articles"].extend(groups[right_index]["articles"])
+                    del groups[right_index]
+                    changed = True
+                    break
+    return groups
 
 
 def judge_candidates(
@@ -148,22 +184,18 @@ def judge_candidates(
 
 
 def cluster_text(article: Article) -> str:
-    return truncate(
-        "\n".join(
-            [
-                article.title,
-                article.summary,
-                article.content,
-            ]
-        ),
-        2000,
-    )
+    return cluster_text_with_limit(article, 2000)
+
+
+def cluster_text_with_limit(article: Article, max_chars: int) -> str:
+    return truncate("\n".join([article.title, article.summary, article.content]), max_chars)
 
 
 def make_event(
     articles: list[Article],
     event_hash: str | None = None,
     centroid: np.ndarray | None = None,
+    vectors: ArticleVectorMap | None = None,
     is_new: bool = False,
 ) -> Event:
     hashes = sorted(article.url_hash for article in articles)
@@ -172,7 +204,12 @@ def make_event(
     official_bonus = sum(1 for a in articles if a.source_category == "official") * 0.5
     weight = sum(article.source_weight for article in articles)
     score = math.log1p(len(articles)) + source_count * 0.8 + official_bonus + weight * 0.2
-    centroid_list = centroid.tolist() if centroid is not None else None
+    if vectors:
+        centroid_list = {name: vector.tolist() for name, vector in vectors.items()}
+    elif centroid is not None:
+        centroid_list = {"default": centroid.tolist()}
+    else:
+        centroid_list = None
     return Event(
         event_hash=event_hash,
         articles=articles,
@@ -196,10 +233,63 @@ def tokens(value: str) -> set[str]:
 
 
 def cosine(a: np.ndarray, b: np.ndarray) -> float:
+    if a.shape != b.shape:
+        return 0.0
     denominator = np.linalg.norm(a) * np.linalg.norm(b)
     if denominator == 0:
         return 0.0
     return float(np.dot(a, b) / denominator)
+
+
+def encode_articles(
+    articles: list[Article],
+    models: list[str] | tuple[str, ...] | None = None,
+    device: str = "cpu",
+    batch_size: int = 32,
+    cpu_threads: int = 4,
+    max_chars: int = 2000,
+) -> list[ArticleVectorMap]:
+    model_names = list(models or ["intfloat/multilingual-e5-small", "sentence-transformers/all-MiniLM-L6-v2"])
+    texts = [cluster_text_with_limit(article, max_chars) for article in articles]
+    vectors_by_model: dict[str, list[np.ndarray]] = {}
+    workers = max(1, min(len(model_names), len(model_names)))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_model = {
+            executor.submit(
+                Embedder(
+                    model_name=model_name,
+                    device=device,
+                    batch_size=batch_size,
+                    cpu_threads=cpu_threads,
+                ).encode,
+                texts,
+            ): model_name
+            for model_name in model_names
+        }
+        for future in as_completed(future_to_model):
+            vectors_by_model[future_to_model[future]] = future.result()
+    return [
+        {model_name: vectors_by_model[model_name][index] for model_name in model_names}
+        for index in range(len(articles))
+    ]
+
+
+def cluster_vectors(cluster: ExistingCluster, model_names: list[str]) -> ArticleVectorMap:
+    if cluster.vectors:
+        if set(cluster.vectors) == {"default"} and model_names:
+            return {model_names[0]: np.array(cluster.vectors["default"], dtype=float)}
+        return {name: np.array(vector, dtype=float) for name, vector in cluster.vectors.items()}
+    if isinstance(cluster.centroid, dict):
+        if set(cluster.centroid) == {"default"} and model_names:
+            return {model_names[0]: np.array(cluster.centroid["default"], dtype=float)}
+        return {name: np.array(vector, dtype=float) for name, vector in cluster.centroid.items()}
+    fallback_name = model_names[0] if model_names else "default"
+    return {fallback_name: np.array(cluster.centroid, dtype=float)}
+
+
+def vector_similarities(left: ArticleVectorMap, right: ArticleVectorMap) -> dict[str, float]:
+    names = sorted(set(left) & set(right))
+    return {name: cosine(left[name], right[name]) for name in names}
 
 
 class Embedder:

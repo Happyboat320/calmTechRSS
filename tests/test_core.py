@@ -7,9 +7,11 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
+import numpy as np
+
 from calmtechrss.api_config import load_api_config
 from calmtechrss.api_config import LLMSettings
-from calmtechrss.cluster import ExistingCluster, cluster_text, incremental_cluster_articles
+from calmtechrss.cluster import ExistingCluster, cluster_text, incremental_cluster_articles, merge_new_articles
 from calmtechrss.config import load_sources
 from calmtechrss.db import Database
 from calmtechrss.export import write_clusters_json
@@ -35,6 +37,10 @@ def make_event() -> Event:
         source_weight=1.0,
     )
     return Event(event_hash="e1", articles=[article], score=1.0)
+
+
+def json_vector(values: list[float]) -> np.ndarray:
+    return np.array(values, dtype=float)
 
 
 class CoreTest(unittest.TestCase):
@@ -95,6 +101,25 @@ class CoreTest(unittest.TestCase):
             self.assertTrue(Path(feed_path).exists())
             self.assertIn("AI tooling update", Path(feed_path).read_text(encoding="utf-8"))
             validate_feed(feed_path)
+
+    def test_feed_keeps_multiple_issue_items(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            event = make_event()
+            rewrite = fallback_rewrite(event)
+            output_dir = Path(temp_dir) / "site"
+            feed_path = generate_feed(
+                output_dir,
+                "https://example.com",
+                "2026-04-29",
+                issues=[
+                    ("2026-04-29", [(event, rewrite)]),
+                    ("2026-04-28", [(event, rewrite)]),
+                ],
+            )
+            html = Path(feed_path).read_text(encoding="utf-8")
+
+            self.assertIn("2026-04-29 科技简报", html)
+            self.assertIn("2026-04-28 科技简报", html)
 
     def test_index_renders_feed_link(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -184,6 +209,33 @@ class CoreTest(unittest.TestCase):
         self.assertEqual(len(updated), 1)
         self.assertTrue(updated[0].is_new)
         self.assertNotEqual(updated[0].event_hash, initial[0].event_hash)
+
+    def test_new_class_merge_requires_all_embedding_models(self) -> None:
+        event = make_event()
+        left = event.articles[0]
+        right = Article(
+            title="AI tooling update",
+            url="https://example.com/b",
+            source_name="Example 2",
+            source_category="media",
+            published_at_utc=datetime.now(timezone.utc),
+            summary="A concise update about AI tooling.",
+            content="",
+            source_article_id="b",
+            url_hash="h2",
+            content_hash="c2",
+            source_weight=1.0,
+        )
+
+        groups = merge_new_articles(
+            [
+                (left, {"m1": json_vector([1, 0]), "m2": json_vector([1, 0])}),
+                (right, {"m1": json_vector([1, 0]), "m2": json_vector([0, 1])}),
+            ],
+            threshold=0.8,
+        )
+
+        self.assertEqual(len(groups), 2)
 
     def test_llm_retries_timeout(self) -> None:
         import httpx

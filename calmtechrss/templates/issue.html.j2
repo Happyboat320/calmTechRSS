@@ -56,6 +56,29 @@
       margin: 8px 0 0;
       padding-left: 20px;
     }
+    details {
+      margin-top: 18px;
+      border-left: 3px solid #d8d8d2;
+      padding-left: 14px;
+    }
+    summary {
+      cursor: pointer;
+      color: #3f4245;
+      font-weight: 600;
+    }
+    .source-text {
+      margin-top: 14px;
+    }
+    .source-text h3 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+      letter-spacing: 0;
+    }
+    .source-text p {
+      color: #3f4245;
+      font-size: 0.96rem;
+      white-space: pre-wrap;
+    }
     a {
       color: #225ea8;
       text-decoration-thickness: 1px;
@@ -87,6 +110,19 @@
               <li><a href="{{ source.url }}">{{ source.name }}</a></li>
             {% endfor %}
           </ul>
+          <details>
+            <summary>原文</summary>
+            {% for article in event.articles %}
+              <section class="source-text" id="{{ event.event_hash }}-{{ loop.index }}">
+                <h3>{{ article.title }}</h3>
+                <p><a href="{{ article.url }}">{{ article.source_name }} 原始链接</a></p>
+                <p>{{ article.summary }}</p>
+                {% if article.content %}
+                  <p>{{ article.content }}</p>
+                {% endif %}
+              </section>
+            {% endfor %}
+          </details>
         </article>
       {% endfor %}
     {% else %}
@@ -98,4 +134,3 @@
   </main>
 </body>
 </html>
-

@@ -257,7 +257,7 @@ class Database:
             event.id = int(row["id"])
         self.conn.commit()
 
-    def get_existing_clusters(self) -> list[tuple[str, list[Article], list[float]]]:
+    def get_existing_clusters(self) -> list[tuple[str, list[Article], dict[str, list[float]]]]:
         rows = self.conn.execute(
             """
             SELECT event_hash, article_hashes_json, centroid_json
@@ -268,9 +268,9 @@ class Database:
         clusters = []
         for row in rows:
             hashes = json.loads(row["article_hashes_json"])
-            centroid = json.loads(row["centroid_json"])
-            if centroid:
-                clusters.append((row["event_hash"], self.get_articles_by_hashes(hashes), centroid))
+            vectors = normalize_vectors_json(json.loads(row["centroid_json"]))
+            if vectors:
+                clusters.append((row["event_hash"], self.get_articles_by_hashes(hashes), vectors))
         return clusters
 
     def get_events_with_recent_articles(self, since_utc: datetime) -> list[Event]:
@@ -293,10 +293,56 @@ class Database:
                 event_hash=row["event_hash"],
                 articles=self.get_articles_by_hashes(hashes),
                 score=float(row["score"]),
-                centroid=json.loads(row["centroid_json"]),
+                centroid=normalize_vectors_json(json.loads(row["centroid_json"])),
             )
             events.append(event)
         return events
+
+    def get_issue_entries(
+        self,
+        limit: int,
+        prompt_version: str,
+        model: str,
+    ) -> list[tuple[str, list[tuple[Event, Rewrite]]]]:
+        rows = self.conn.execute(
+            """
+            SELECT issue_date, event_hashes_json
+            FROM issues
+            ORDER BY issue_date DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        entries: list[tuple[str, list[tuple[Event, Rewrite]]]] = []
+        for row in rows:
+            pairs: list[tuple[Event, Rewrite]] = []
+            for event_hash in json.loads(row["event_hashes_json"]):
+                event = self.get_event(event_hash)
+                rewrite = self.get_rewrite(event_hash, prompt_version, model)
+                if event is not None and rewrite is not None:
+                    pairs.append((event, rewrite))
+            entries.append((row["issue_date"], pairs))
+        return entries
+
+    def get_event(self, event_hash: str) -> Event | None:
+        row = self.conn.execute(
+            """
+            SELECT event_hash, article_hashes_json, centroid_json, score, id
+            FROM events
+            WHERE event_hash = ?
+            """,
+            (event_hash,),
+        ).fetchone()
+        if row is None:
+            return None
+        hashes = json.loads(row["article_hashes_json"])
+        return Event(
+            id=int(row["id"]),
+            event_hash=row["event_hash"],
+            articles=self.get_articles_by_hashes(hashes),
+            score=float(row["score"]),
+            centroid=normalize_vectors_json(json.loads(row["centroid_json"])),
+        )
 
     def get_rewrite(self, event_hash: str, prompt_version: str, model: str) -> Rewrite | None:
         row = self.conn.execute(
@@ -364,3 +410,15 @@ def row_to_article(row: sqlite3.Row) -> Article:
         content_hash=row["content_hash"],
         source_weight=float(row["source_weight"]),
     )
+
+
+def normalize_vectors_json(raw: object) -> dict[str, list[float]]:
+    if isinstance(raw, dict):
+        return {
+            str(name): [float(value) for value in vector]
+            for name, vector in raw.items()
+            if isinstance(vector, list)
+        }
+    if isinstance(raw, list) and raw:
+        return {"default": [float(value) for value in raw]}
+    return {}

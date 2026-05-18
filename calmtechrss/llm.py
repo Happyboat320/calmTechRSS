@@ -53,6 +53,37 @@ class LLMClient:
             LOGGER.warning("event selection failed: %s", exc)
         return [event.event_hash for event in events[:limit]]
 
+    def rank_new_events(self, events: list[Event], limit: int = 5) -> list[str]:
+        if not self.enabled or len(events) <= limit:
+            return [event.event_hash for event in events[:limit]]
+        catalog = []
+        for event in events:
+            first = event.articles[0]
+            catalog.append(
+                {
+                    "event_hash": event.event_hash,
+                    "title": first.title,
+                    "summary": truncate(first.summary, 700),
+                }
+            )
+        prompt = (
+            "你是克制的科技日报编辑。请只根据候选类第一篇文章的标题和摘要，"
+            "选出 5 条对计算机专业工作者最重要的信息，并按重要性从高到低排序。"
+            "避免过窄的 patch release、营销稿、重复列表页。"
+            "只返回严格 JSON：{\"event_hashes\":[\"...\"]}。\n\n"
+            + json.dumps(catalog, ensure_ascii=False)
+        )
+        try:
+            data = self._chat_json(prompt)
+            hashes = [str(item) for item in data.get("event_hashes", [])]
+            allowed = {event.event_hash for event in events}
+            selected = [item for item in hashes if item in allowed]
+            if selected:
+                return selected[:limit]
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("new event ranking failed: %s", exc)
+        return [event.event_hash for event in events[:limit]]
+
     def rewrite_event(self, event: Event) -> Rewrite:
         if not self.enabled:
             return fallback_rewrite(event)

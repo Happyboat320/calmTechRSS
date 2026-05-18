@@ -33,6 +33,15 @@ def render_issue(
     return str(path)
 
 
+def prune_issue_pages(output_dir: str | Path, keep: int = 5) -> None:
+    issues_dir = Path(output_dir) / "issues"
+    if not issues_dir.exists():
+        return
+    pages = sorted(issues_dir.glob("*.html"), key=lambda path: path.stem, reverse=True)
+    for page in pages[keep:]:
+        page.unlink(missing_ok=True)
+
+
 def render_index(output_dir: str | Path, issue_date: str, site_base_url: str) -> str:
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)

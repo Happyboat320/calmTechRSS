@@ -39,7 +39,7 @@ class Event:
     articles: list[Article]
     score: float = 0.0
     id: int | None = None
-    centroid: list[float] | None = None
+    centroid: dict[str, list[float]] | list[float] | None = None
     is_new: bool = False
 
 
