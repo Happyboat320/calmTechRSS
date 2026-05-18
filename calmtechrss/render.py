@@ -58,13 +58,16 @@ def render_original_pages(
         article_html = []
         for article in event.articles:
             content = article.content or article.summary
+            paragraphs = "".join(
+                f"<p>{escape(paragraph)}</p>" for paragraph in article_paragraphs(content)
+            )
             article_html.append(
                 f"""
                 <article>
                   <h2>{escape(article.title)}</h2>
                   <p class="meta"><a href="{escape(article.url, quote=True)}">{escape(article.source_name)} 原始链接</a></p>
-                  <p>{escape(article.summary)}</p>
-                  <p class="body">{escape(content)}</p>
+                  <p class="summary">{escape(article.summary)}</p>
+                  <div class="article-body">{paragraphs}</div>
                 </article>
                 """
             )
@@ -103,11 +106,11 @@ def render_cluster_log(
     for event in events:
         labels = []
         if event.event_hash in selected_hashes:
-            labels.append("selected")
+            labels.append("已入选")
         if event.is_new:
-            labels.append("new")
+            labels.append("今日新增")
         elif event.event_hash in changed_hashes:
-            labels.append("existing")
+            labels.append("归入已有类")
         articles = "".join(
             f'<li><a href="{escape(article.url, quote=True)}">{escape(article.title)}</a> '
             f'<span class="meta">{escape(article.source_name)}</span></li>'
@@ -117,20 +120,21 @@ def render_cluster_log(
             f"""
             <section>
               <h2>{escape(event.event_hash[:12])} {' '.join(labels)}</h2>
-              <p class="meta">score={event.score:.3f}; articles={len(event.articles)}</p>
+              <p class="meta">最终分数：{event.score:.3f}；文章数：{len(event.articles)}</p>
               <ul>{articles}</ul>
             </section>
             """
         )
     stat_items = "".join(
-        f"<li>{escape(str(key))}: {escape(str(value))}</li>" for key, value in stats.items()
+        f"<li>{escape(stat_label(str(key)))}：{escape(str(value))}</li>"
+        for key, value in stats.items()
     )
     html = base_page(
         title=f"{issue_date} 聚类日志",
         body=f"""
         <header>
           <h1>{issue_date} 聚类日志</h1>
-          <p class="meta">本页记录本次运行中的聚类、入选和基础统计。</p>
+          <p class="meta">本页记录本次运行中的抓取数量、聚类结果、今日新增类和最终入选类。</p>
           <p><a href="{base}/issues/{issue_date}.html">返回当日简报</a></p>
         </header>
         <section>
@@ -244,7 +248,9 @@ def base_page(title: str, body: str) -> str:
     ul {{ margin: 8px 0 0; padding-left: 20px; }}
     a {{ color: #225ea8; text-decoration-thickness: 1px; text-underline-offset: 3px; }}
     .meta {{ color: #64645f; font-size: 0.95rem; }}
-    .body {{ white-space: pre-wrap; color: #3f4245; }}
+    .summary {{ color: #3f4245; font-weight: 600; }}
+    .article-body {{ color: #303336; max-width: 78ch; }}
+    .article-body p {{ margin: 0 0 1.05em; }}
   </style>
 </head>
 <body>
@@ -261,3 +267,53 @@ def remove_tree(path: Path) -> None:
         else:
             child.unlink(missing_ok=True)
     path.rmdir()
+
+
+def article_paragraphs(text: str) -> list[str]:
+    normalized = "\n".join(line.strip() for line in text.splitlines())
+    paragraphs = [line for line in normalized.split("\n") if line]
+    if len(paragraphs) > 1:
+        return paragraphs
+    value = " ".join(text.split())
+    if not value:
+        return []
+    pieces: list[str] = []
+    current: list[str] = []
+    for part in split_sentences(value):
+        current.append(part)
+        current_text = " ".join(current)
+        if len(current_text) >= 260:
+            pieces.append(current_text)
+            current = []
+    if current:
+        pieces.append(" ".join(current))
+    return pieces or [value]
+
+
+def split_sentences(text: str) -> list[str]:
+    sentences: list[str] = []
+    start = 0
+    endings = set("。！？.!?")
+    for index, char in enumerate(text):
+        if char in endings:
+            sentence = text[start : index + 1].strip()
+            if sentence:
+                sentences.append(sentence)
+            start = index + 1
+    tail = text[start:].strip()
+    if tail:
+        sentences.append(tail)
+    return sentences or [text]
+
+
+def stat_label(key: str) -> str:
+    labels = {
+        "fetched": "RSS 抓取文章数",
+        "saved_or_seen": "写入或已存在文章数",
+        "candidates": "待聚类文章数",
+        "changed_clusters": "本次变化类数",
+        "new_clusters": "今日新增类数",
+        "selected_clusters": "最终入选类数",
+        "clusters_json": "聚类 JSON 文件",
+    }
+    return labels.get(key, key)

@@ -18,7 +18,13 @@ from calmtechrss.export import write_clusters_json
 from calmtechrss.fulltext import enrich_articles_with_fulltext
 from calmtechrss.llm import EventJudgeClient, LLMClient, fallback_rewrite
 from calmtechrss.models import Article, Event
-from calmtechrss.render import render_cluster_log, render_index, render_issue, render_original_pages
+from calmtechrss.render import (
+    article_paragraphs,
+    render_cluster_log,
+    render_index,
+    render_issue,
+    render_original_pages,
+)
 from calmtechrss.rss import generate_feed, validate_feed
 
 
@@ -137,6 +143,19 @@ class CoreTest(unittest.TestCase):
             self.assertTrue((output_dir / "issues" / "2026-05-18-log" / "index.html").exists())
             self.assertIn("本日原文归档", html)
             self.assertIn("本次聚类日志", html)
+            log_html = (output_dir / "issues" / "2026-05-18-log" / "index.html").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("今日新增", log_html)
+            self.assertIn("最终分数", log_html)
+
+    def test_article_paragraphs_formats_flat_text(self) -> None:
+        paragraphs = article_paragraphs(
+            "第一句话。第二句话。第三句话。"
+            + "This is a longer English sentence. Another sentence follows. " * 8
+        )
+
+        self.assertGreater(len(paragraphs), 1)
 
     def test_feed_keeps_multiple_issue_items(self) -> None:
         with TemporaryDirectory() as temp_dir:
