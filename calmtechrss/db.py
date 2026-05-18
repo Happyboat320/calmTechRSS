@@ -79,6 +79,12 @@ CREATE TABLE IF NOT EXISTS issues (
   html_path TEXT NOT NULL,
   created_at_utc TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS metadata (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at_utc TEXT NOT NULL
+);
 """
 
 
@@ -181,6 +187,22 @@ class Database:
             ORDER BY a.published_at_utc DESC
             """,
             (since_utc.isoformat(),),
+        ).fetchall()
+        return [row_to_article(row) for row in rows]
+
+    def get_unassigned_articles_between(
+        self,
+        since_utc: datetime,
+        until_utc: datetime,
+    ) -> list[Article]:
+        rows = self.conn.execute(
+            """
+            SELECT a.* FROM articles a
+            LEFT JOIN event_articles ea ON ea.url_hash = a.url_hash
+            WHERE a.published_at_utc >= ? AND a.published_at_utc <= ? AND ea.url_hash IS NULL
+            ORDER BY a.published_at_utc DESC
+            """,
+            (since_utc.isoformat(), until_utc.isoformat()),
         ).fetchall()
         return [row_to_article(row) for row in rows]
 
@@ -297,6 +319,60 @@ class Database:
             )
             events.append(event)
         return events
+
+    def get_events_with_articles_between(
+        self,
+        since_utc: datetime,
+        until_utc: datetime,
+    ) -> list[Event]:
+        rows = self.conn.execute(
+            """
+            SELECT DISTINCT e.event_hash, e.article_hashes_json, e.centroid_json, e.score, e.id
+            FROM events e
+            JOIN event_articles ea ON ea.event_hash = e.event_hash
+            JOIN articles a ON a.url_hash = ea.url_hash
+            WHERE a.published_at_utc >= ? AND a.published_at_utc <= ?
+            ORDER BY e.score DESC
+            """,
+            (since_utc.isoformat(), until_utc.isoformat()),
+        ).fetchall()
+        events = []
+        for row in rows:
+            hashes = json.loads(row["article_hashes_json"])
+            event = Event(
+                id=int(row["id"]),
+                event_hash=row["event_hash"],
+                articles=self.get_articles_by_hashes(hashes),
+                score=float(row["score"]),
+                centroid=normalize_vectors_json(json.loads(row["centroid_json"])),
+            )
+            events.append(event)
+        return events
+
+    def get_metadata_datetime(self, key: str) -> datetime | None:
+        row = self.conn.execute("SELECT value FROM metadata WHERE key = ?", (key,)).fetchone()
+        if row is None:
+            return None
+        try:
+            parsed = datetime.fromisoformat(row["value"])
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    def set_metadata_datetime(self, key: str, value: datetime) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO metadata (key, value, updated_at_utc)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+              value=excluded.value,
+              updated_at_utc=excluded.updated_at_utc
+            """,
+            (key, value.astimezone(timezone.utc).isoformat(), utc_now()),
+        )
+        self.conn.commit()
 
     def get_issue_entries(
         self,

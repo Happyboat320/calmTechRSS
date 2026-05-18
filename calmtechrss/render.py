@@ -315,5 +315,8 @@ def stat_label(key: str) -> str:
         "new_clusters": "今日新增类数",
         "selected_clusters": "最终入选类数",
         "clusters_json": "聚类 JSON 文件",
+        "fetch_window_start": "抓取窗口开始",
+        "fetch_window_end": "抓取窗口结束",
+        "fetch_window_reason": "抓取窗口规则",
     }
     return labels.get(key, key)

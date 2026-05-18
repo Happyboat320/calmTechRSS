@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -26,6 +27,7 @@ from .rss import generate_feed
 
 LOGGER = logging.getLogger(__name__)
 LOCAL_TZ = ZoneInfo("Asia/Shanghai")
+LAST_FETCH_KEY = "last_fetch_at_utc"
 
 
 def run_pipeline(
@@ -38,15 +40,21 @@ def run_pipeline(
     candidate_hours: int = 24,
 ) -> None:
     load_env()
+    run_started_utc = datetime.now(timezone.utc)
     issue_date = issue_date or datetime.now(LOCAL_TZ).date().isoformat()
-    since = datetime.now(timezone.utc) - timedelta(hours=candidate_hours)
     api_config = load_api_config(api_config_path)
     sources = load_sources(sources_path)
     db = Database(db_path)
     try:
         db.init()
+        since, window_reason = resolve_fetch_window(db, run_started_utc, candidate_hours)
         db.upsert_sources(sources)
-        fetched = fetch_articles(sources, since, max_workers=api_config.pipeline.max_workers)
+        fetched = fetch_articles(
+            sources,
+            since,
+            max_workers=api_config.pipeline.max_workers,
+            until_utc=run_started_utc,
+        )
         fetched = enrich_articles_with_fulltext(
             fetched,
             max_workers=api_config.pipeline.max_workers,
@@ -54,7 +62,7 @@ def run_pipeline(
         saved = db.upsert_articles(fetched)
         LOGGER.info("fetched=%s saved_or_seen=%s", len(fetched), len(saved))
 
-        candidates = db.get_unassigned_articles_since(since)
+        candidates = db.get_unassigned_articles_between(since, run_started_utc)
         llm = LLMClient(api_config.llm)
         judge = EventJudgeClient(api_config.judge.resolved(api_config.llm))
         existing_clusters = [
@@ -82,7 +90,7 @@ def run_pipeline(
             event.score = 1 + rank_bonus.get(event.event_hash, 0)
         db.upsert_events(changed_events)
 
-        events = db.get_events_with_recent_articles(since)
+        events = db.get_events_with_articles_between(since, run_started_utc)
         new_event_hashes = {event.event_hash for event in changed_events if event.is_new}
         for event in events:
             event.is_new = event.event_hash in new_event_hashes
@@ -135,6 +143,9 @@ def run_pipeline(
                 "new_clusters": len(new_events),
                 "selected_clusters": len(selected_events),
                 "clusters_json": clusters_json_path,
+                "fetch_window_start": since.isoformat(),
+                "fetch_window_end": run_started_utc.isoformat(),
+                "fetch_window_reason": window_reason,
             },
         )
         html_path = render_issue(
@@ -150,5 +161,22 @@ def run_pipeline(
         generate_feed(output_dir, site_base_url, issue_date, selected=rewrites, issues=issue_entries)
         render_index(output_dir, issue_date, site_base_url)
         prune_issue_pages(output_dir, keep=5)
+        db.set_metadata_datetime(LAST_FETCH_KEY, run_started_utc)
     finally:
         db.close()
+
+
+def resolve_fetch_window(
+    db: Database,
+    run_started_utc: datetime,
+    candidate_hours: int,
+) -> tuple[datetime, str]:
+    fallback_since = run_started_utc - timedelta(hours=candidate_hours)
+    if os.getenv("GITHUB_EVENT_NAME") == "push":
+        return fallback_since, f"push 运行，使用最近 {candidate_hours} 小时"
+    last_fetch_at = db.get_metadata_datetime(LAST_FETCH_KEY)
+    if last_fetch_at is None:
+        return fallback_since, f"没有上次抓取记录，使用最近 {candidate_hours} 小时"
+    if last_fetch_at >= run_started_utc:
+        return fallback_since, f"上次抓取时间异常，使用最近 {candidate_hours} 小时"
+    return last_fetch_at, "从上次抓取时间开始"

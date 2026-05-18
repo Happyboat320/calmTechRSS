@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -18,6 +18,7 @@ from calmtechrss.export import write_clusters_json
 from calmtechrss.fulltext import enrich_articles_with_fulltext
 from calmtechrss.llm import EventJudgeClient, LLMClient, fallback_rewrite
 from calmtechrss.models import Article, Event
+from calmtechrss.pipeline import resolve_fetch_window
 from calmtechrss.render import (
     article_paragraphs,
     render_cluster_log,
@@ -94,6 +95,37 @@ class CoreTest(unittest.TestCase):
                 db.init()
             finally:
                 db.close()
+
+    def test_fetch_window_uses_last_fetch_outside_push(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            db = Database(Path(temp_dir) / "calmtechrss.sqlite3")
+            run_started = datetime(2026, 5, 18, 8, 0, tzinfo=timezone.utc)
+            last_fetch = run_started - timedelta(hours=7)
+            try:
+                db.init()
+                db.set_metadata_datetime("last_fetch_at_utc", last_fetch)
+                with patch.dict("os.environ", {"GITHUB_EVENT_NAME": "schedule"}):
+                    since, reason = resolve_fetch_window(db, run_started, 24)
+            finally:
+                db.close()
+
+        self.assertEqual(since, last_fetch)
+        self.assertEqual(reason, "从上次抓取时间开始")
+
+    def test_fetch_window_keeps_push_at_24_hours(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            db = Database(Path(temp_dir) / "calmtechrss.sqlite3")
+            run_started = datetime(2026, 5, 18, 8, 0, tzinfo=timezone.utc)
+            try:
+                db.init()
+                db.set_metadata_datetime("last_fetch_at_utc", run_started - timedelta(hours=7))
+                with patch.dict("os.environ", {"GITHUB_EVENT_NAME": "push"}):
+                    since, reason = resolve_fetch_window(db, run_started, 24)
+            finally:
+                db.close()
+
+        self.assertEqual(since, run_started - timedelta(hours=24))
+        self.assertIn("push", reason)
 
     def test_render_and_feed_validate(self) -> None:
         with TemporaryDirectory() as temp_dir:
