@@ -1,6 +1,6 @@
 # Calm Tech RSS
 
-Calm Tech RSS 会从可信科技 RSS / Atom 源抓取内容，去重、聚类并筛选 3-5 条值得关注的事件，生成克制、客观的中文科技日报，同时发布静态 HTML 和每天只新增一个条目的 RSS Feed。
+Calm Tech RSS 会从可信科技 RSS / Atom 源抓取内容，去重、聚类并筛选 5 条值得关注的事件，生成克制、客观的中文科技日报，同时发布静态 HTML 和每日 RSS Feed。
 
 系统按可重复运行设计：文章 URL、抓取后的正文、事件重写和每日简报都会缓存在 SQLite 中，重复执行不会重复入库，也会尽量避免重复调用 LLM。
 
@@ -18,6 +18,8 @@ python3 -m calmtechrss run --date 2026-04-28
 
 - `site/index.html`
 - `site/issues/YYYY-MM-DD.html`
+- `site/issues/YYYY-MM-DD-事件哈希/index.html`
+- `site/issues/YYYY-MM-DD-log/index.html`
 - `site/feed.xml`
 - `site/clusters/YYYY-MM-DD.json`
 - `data/calmtechrss.sqlite3`
@@ -41,11 +43,10 @@ API、聊天模型和向量模型配置在 `config/api.yml`。仓库只提交 `c
 ```yaml
 llm:
   enabled: true
-  base_url: https://api.openai.com/v1
+  base_url: https://right.codes/deepseek
   api_key_env: OPENAI_API_KEY
-  api_key: ""
-  model: gpt-4.1-mini
-  temperature: 0.2
+  model: deepseek-v4-pro
+  temperature: 0.1
   timeout_seconds: 180
   max_retries: 5
 
@@ -58,9 +59,14 @@ judge:
 
 embedding:
   model: intfloat/multilingual-e5-small
+  models:
+    - intfloat/multilingual-e5-small
+    - sentence-transformers/all-MiniLM-L6-v2
   device: cpu
   batch_size: 32
   cpu_threads: 4
+  max_chars: 2000
+  similarity_threshold: 0.8
 
 pipeline:
   max_workers: 4
@@ -72,22 +78,23 @@ pipeline:
 OPENAI_API_KEY=你的密钥
 ```
 
-如果没有配置 API key，程序会使用本地降级摘要，完整生成流程仍然可以运行。`sentence-transformers` 或模型不可用时，语义聚类会回退到确定性的本地哈希向量。GitHub Actions 环境默认按 CPU 运行 `intfloat/multilingual-e5-small`，并发抓取数默认是 4。
+如果没有配置 API key，程序会使用本地降级摘要，完整生成流程仍然可以运行。`sentence-transformers` 或模型不可用时，语义聚类会回退到确定性的本地哈希向量。GitHub Actions 环境默认按 CPU 并行运行两个向量模型，并发抓取数默认是 4。
 
 ## 主流程
 
-主流程不会逐篇翻译文章，也不再使用 LLM 选择事件。
+主流程不会逐篇翻译文章。LLM 只对今日新增类做重要性排序，并对最终入选类做重写。
 
 - 读取 RSS 源配置，并发抓取 RSS / Atom。
-- 解析文章，统一 UTC 时间，过滤候选窗口内内容。
+- 解析文章，统一 UTC 时间，过滤候选窗口内内容。push 首次构建使用最近 24 小时；每日增量运行使用上次成功抓取时间到本次运行开始时间。
 - 清洗无效文章：至少需要标题、链接，以及摘要或正文之一。
 - 在入库和聚类之前尝试抓取每篇文章的网页正文；抓取成功时写入 `articles.content` 并更新 `content_hash`，失败时保留 RSS 自带内容。
-- 使用“标题 + 摘要 + 内容”做向量聚类，超长文本只取最前面的片段。
+- 使用“标题 + 摘要 + 内容”并行做双模型向量化，超长文本只取最前面的片段。
 - 写入 SQLite，并增量归入历史事件类或新建事件类。
-- 事件选择：只从本次新建的事件类中选择，按类内文章数量降序排序，取文章数最多的 5 个。
+- 聚类时只有两个向量模型对同一候选类的相似度都大于阈值才允许合并。
+- 事件选择：只从本次新建的事件类中选择；先把每类第一篇文章的标题和摘要交给 LLM 排序，再按重要性加分，取最终分数最高的 5 个。
 - 事件重写：只对选中的新增事件类调用 LLM，每个请求包含该事件类内所有文章的标题、摘要、正文片段和来源链接。
 
-每次运行会把聚类结果写入 `site/clusters/YYYY-MM-DD.json`，用于核查聚类数量、每类文章和哪些类是本次新建类。
+每次运行会把聚类结果写入 `site/clusters/YYYY-MM-DD.json`，并生成 `issues/YYYY-MM-DD-log/` 聚类日志页。每个入选类的原文归档单独写入 `issues/YYYY-MM-DD-事件哈希/`。
 
 ## 增量聚类
 
@@ -101,14 +108,12 @@ OPENAI_API_KEY=你的密钥
 
 新文章的归类流程：
 
-- 先和所有历史类及本轮新建类的中心向量比较。
-- 取相似度最高的 top-5 候选类，再过滤掉相似度不大于 `0.75` 的候选。
-- 如果没有候选类，则新建事件类，并把这篇文章作为该类中心。
-- 如果有候选类，则并行调用判别模型判断“是不是同一个具体事件”。
-- 判别模型全部返回否时，新建事件类。
-- 有一个或多个候选返回是时，选择其中向量相似度最高的类归入。
+- 先和所有历史类中心向量比较；两个模型相似度都大于 `0.8` 时才进入已有类候选。
+- 对已有类候选并行调用判别模型判断“是不是同一个具体事件”，通过后才归入相似度最高的已有类。
+- 剩余文章每篇先单独成类，再按同样的双模型阈值反复合并，直到无法继续合并。
+- 每个类用第一篇文章的双模型向量表示，不用均值中心。
 
-判别模型使用 `judge` 配置，默认沿用 `llm` 的 `base_url`、`api_key_env` 和密钥，只把模型名设为 `deepseek-v4-flash`。它有独立 prompt，只返回是否同一事件。这样跨中英文报道可以先靠多语言向量召回，再由判别模型确认主体、动作和时间背景是否一致。本期简报只从本次新建类里按文章数量选择最多 5 条。
+判别模型使用 `judge` 配置，默认沿用 `llm` 的 `base_url`、`api_key_env` 和密钥，只把模型名设为 `deepseek-v4-flash`。它有独立 prompt，只返回是否同一事件。这样跨中英文报道可以先靠向量召回，再由判别模型确认主体、动作和时间背景是否一致。
 
 ## RSS 和全文抓取观察
 
@@ -156,7 +161,7 @@ pip install ".[embeddings]"
 
 ## 部署
 
-仓库包含 GitHub Actions 工作流，会每天运行一次生成任务，并把 `site/` 作为 GitHub Pages artifact 上传。Actions 会安装 CPU 版 Torch 和 `sentence-transformers`，使用 `config/api.example.yml` 中的 `device: cpu`、`cpu_threads: 4` 和 `max_workers: 4`。
+仓库包含 GitHub Actions 工作流，会在每天 UTC+8 06:00 运行生成任务，并把 `site/` 作为 GitHub Pages artifact 上传。Actions 会安装 CPU 版 Torch 和 `sentence-transformers`，使用 `config/api.example.yml` 中的 `device: cpu`、`cpu_threads: 4` 和 `max_workers: 4`。
 
 部署步骤：
 
@@ -169,7 +174,7 @@ pip install ".[embeddings]"
 工作流会在以下情况运行：
 
 - push 到 `main`：不恢复数据库缓存，相当于清空数据库后重新生成。
-- 每天定时任务：恢复并保存 `data/` 数据库缓存，用于增量入库和增量聚类。
+- 每天定时任务：恢复并保存 `data/` 数据库缓存，用于从上次成功抓取时间继续增量入库和增量聚类。
 - 手动 `workflow_dispatch`：不恢复数据库缓存，行为和 push 一样。
 
 建议设置：
@@ -192,7 +197,7 @@ RSS 阅读器应订阅 `feed.xml` 的完整地址，而不是订阅项目页首�
 https://用户名.github.io/仓库名
 ```
 
-RSS item 会指向当天 HTML 简报，同时在 `description` 和 `content:encoded` 中包含 3-5 条简报内容，方便 RSS 阅读器直接预览。
+RSS item 会指向当天 HTML 简报，同时在 `description` 和 `content:encoded` 中包含最多 5 条简报内容，方便 RSS 阅读器直接预览。
 
 ## 历史页面和 RSS
 
@@ -202,4 +207,9 @@ GitHub Actions 会恢复并保存 `site/issues/` 缓存，因此历史 HTML 简�
 https://用户名.github.io/仓库名/issues/YYYY-MM-DD.html
 ```
 
-`feed.xml` 不保留历史 item，每次运行只输出当天这一条。这样 RSS 阅读器每天只收到一条新简报，但旧的 HTML 页面仍可通过原链接访问。
+`site/issues/` 只保留最近 5 天网页归档，RSS `feed.xml` 保留最近 10 天 item。原文页和当日聚类日志也位于 `site/issues/` 下：
+
+```text
+https://用户名.github.io/仓库名/issues/YYYY-MM-DD-事件哈希
+https://用户名.github.io/仓库名/issues/YYYY-MM-DD-log
+```

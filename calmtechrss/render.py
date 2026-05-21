@@ -152,15 +152,15 @@ def prune_issue_pages(output_dir: str | Path, keep: int = 5) -> None:
     issues_dir = Path(output_dir) / "issues"
     if not issues_dir.exists():
         return
-    pages = sorted(issues_dir.glob("????-??-??-*.html"), key=lambda path: path.stem, reverse=True)
-    for page in pages[keep:]:
-        page.unlink(missing_ok=True)
-    dirs = [
-        path
-        for path in issues_dir.glob("????-??-??-*")
-        if path.is_dir() and not path.name.endswith("-log")
-    ]
-    keep_dates = sorted({path.name[:10] for path in dirs}, reverse=True)[:keep]
+    pages = [path for path in issues_dir.glob("????-??-??.html") if path.is_file()]
+    dirs = [path for path in issues_dir.glob("????-??-??-*") if path.is_dir()]
+    keep_dates = sorted(
+        {path.stem for path in pages} | {path.name[:10] for path in dirs},
+        reverse=True,
+    )[:keep]
+    for page in pages:
+        if page.stem not in keep_dates:
+            page.unlink(missing_ok=True)
     for path in dirs:
         if path.name[:10] not in keep_dates:
             remove_tree(path)

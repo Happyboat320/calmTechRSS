@@ -2,7 +2,7 @@
 # 复制为 config/api.yml 后使用。建议把密钥放在环境变量里，不要直接写进仓库文件。
 llm:
   enabled: true
-  base_url: https://opencode.ai/zen/go/v1
+  base_url: https://right.codes/deepseek
   api_key_env: OPENAI_API_KEY
   model: deepseek-v4-pro
   temperature: 0.1

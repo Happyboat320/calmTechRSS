@@ -25,6 +25,7 @@ from calmtechrss.render import (
     render_index,
     render_issue,
     render_original_pages,
+    prune_issue_pages,
 )
 from calmtechrss.rss import generate_feed, validate_feed
 
@@ -215,6 +216,25 @@ class CoreTest(unittest.TestCase):
 
             self.assertIn("https://example.com/calmTechRSS/feed.xml", html)
             self.assertIn("https://example.com/calmTechRSS/issues/2026-04-29.html", html)
+
+    def test_prune_issue_pages_keeps_last_five_days(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            issues_dir = Path(temp_dir) / "issues"
+            issues_dir.mkdir(parents=True)
+            for day in range(1, 7):
+                date = f"2026-05-0{day}"
+                (issues_dir / f"{date}.html").write_text("issue", encoding="utf-8")
+                (issues_dir / f"{date}-event").mkdir()
+                (issues_dir / f"{date}-event" / "index.html").write_text("body", encoding="utf-8")
+                (issues_dir / f"{date}-log").mkdir()
+                (issues_dir / f"{date}-log" / "index.html").write_text("log", encoding="utf-8")
+
+            prune_issue_pages(temp_dir, keep=5)
+
+            self.assertFalse((issues_dir / "2026-05-01.html").exists())
+            self.assertFalse((issues_dir / "2026-05-01-event").exists())
+            self.assertFalse((issues_dir / "2026-05-01-log").exists())
+            self.assertTrue((issues_dir / "2026-05-06.html").exists())
 
     def test_clusters_json_exports_events(self) -> None:
         with TemporaryDirectory() as temp_dir:
