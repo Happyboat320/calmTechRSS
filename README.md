@@ -182,6 +182,8 @@ pip install ".[embeddings]"
 - `OPENAI_API_KEY`：可选，不设置时使用本地降级摘要
 - `SITE_BASE_URL`：建议设置为实际站点地址，否则 RSS 链接会指向默认示例地址
 
+`OPENAI_API_KEY` 和 `SITE_BASE_URL` 用途不同：前者只用于 `config/api.example.yml` 中的 API endpoint，后者只用于生成网页、RSS、原文归档和聚类日志链接。不要把 API endpoint 写进 `SITE_BASE_URL`。
+
 如果需要更换 API 服务商、模型或向量模型，本地修改 `config/api.yml`；GitHub Actions 使用提交到仓库的 `config/api.example.yml`，因此部署环境的非密钥配置需要同步改这个模板文件。
 
 项目页部署后可以打开：
