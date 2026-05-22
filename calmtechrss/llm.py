@@ -22,6 +22,53 @@ class LLMClient:
     def enabled(self) -> bool:
         return self.settings.enabled and bool(self.api_key)
 
+    def cluster_articles(self, articles: list[Article]) -> list[dict]:
+        if not self.enabled or not articles:
+            return []
+        catalog = []
+        for index, article in enumerate(articles):
+            catalog.append(
+                {
+                    "index": index,
+                    "source": article.source_name,
+                    "title": article.title,
+                    "summary": truncate(article.summary, 500),
+                }
+            )
+        prompt = (
+            "你是科技日报编辑。请将以下文章按报道的具体事件进行分组，"
+            "每组是一个独立的科技新闻事件（同一事件的不同报道归为一组）。"
+            "然后按事件对计算机专业工作者的重要性从高到低排序。"
+            "避免将 patch release、营销稿、重复列表页作为高优先级事件。"
+            "返回严格 JSON，格式为：\n"
+            '{"events": [{"label": "事件简述", "importance": 1, "article_indices": [0, 1]}]}\n'
+            "其中 importance 从 1 开始递增（1=最重要），article_indices 为文章在列表中的索引。\n\n"
+            + json.dumps(catalog, ensure_ascii=False)
+        )
+        try:
+            data = self._chat_json(prompt)
+            events = data.get("events", [])
+            if not events:
+                raise ValueError("empty events list")
+            result = []
+            allowed_indices = set(range(len(articles)))
+            for event in events:
+                indices = [int(i) for i in event.get("article_indices", []) if int(i) in allowed_indices]
+                if not indices:
+                    continue
+                result.append(
+                    {
+                        "label": str(event.get("label", "")),
+                        "importance": int(event.get("importance", 99)),
+                        "article_indices": indices,
+                    }
+                )
+            if result:
+                return sorted(result, key=lambda item: item["importance"])
+        except Exception as exc:
+            LOGGER.warning("LLM clustering failed: %s", exc)
+        return []
+
     def pick_event_hashes(self, events: list[Event], limit: int = 5) -> list[str]:
         if not self.enabled or len(events) <= 5:
             return [event.event_hash for event in events[:limit]]

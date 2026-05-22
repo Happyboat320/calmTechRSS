@@ -8,7 +8,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .api_config import load_api_config
-from .cluster import ExistingCluster, incremental_cluster_articles
+from .cluster import ExistingCluster, incremental_cluster_articles, llm_cluster_articles
 from .config import load_sources
 from .db import Database
 from .env import load_env
@@ -65,29 +65,38 @@ def run_pipeline(
         candidates = db.get_unassigned_articles_between(since, run_started_utc)
         llm = LLMClient(api_config.llm)
         judge = EventJudgeClient(api_config.judge.resolved(api_config.llm))
-        existing_clusters = [
-            ExistingCluster(event_hash=event_hash, articles=articles, centroid=[], vectors=centroid)
-            for event_hash, articles, centroid in db.get_existing_clusters()
-        ]
-        changed_events = incremental_cluster_articles(
-            candidates,
-            existing_clusters=existing_clusters,
-            embedding_model=api_config.embedding.model,
-            embedding_models=api_config.embedding.models,
-            embedding_device=api_config.embedding.device,
-            embedding_batch_size=api_config.embedding.batch_size,
-            embedding_cpu_threads=api_config.embedding.cpu_threads,
-            embedding_max_chars=api_config.embedding.max_chars,
-            similarity_threshold=api_config.embedding.similarity_threshold,
-            event_judge=judge.same_event if judge.enabled else None,
-            max_judge_workers=api_config.pipeline.max_workers,
-        )
 
-        new_events = [event for event in changed_events if event.is_new]
-        ranked_hashes = llm.rank_new_events(new_events, limit=5)
-        rank_bonus = {event_hash: 6 - index for index, event_hash in enumerate(ranked_hashes, 1)}
-        for event in new_events:
-            event.score = 1 + rank_bonus.get(event.event_hash, 0)
+        if llm.enabled:
+            changed_events = llm_cluster_articles(
+                candidates,
+                llm_client=llm,
+                max_articles=api_config.llm.max_articles,
+            )
+            new_events = changed_events
+        else:
+            existing_clusters = [
+                ExistingCluster(event_hash=event_hash, articles=articles, centroid=[], vectors=centroid)
+                for event_hash, articles, centroid in db.get_existing_clusters()
+            ]
+            changed_events = incremental_cluster_articles(
+                candidates,
+                existing_clusters=existing_clusters,
+                embedding_model=api_config.embedding.model,
+                embedding_models=api_config.embedding.models,
+                embedding_device=api_config.embedding.device,
+                embedding_batch_size=api_config.embedding.batch_size,
+                embedding_cpu_threads=api_config.embedding.cpu_threads,
+                embedding_max_chars=api_config.embedding.max_chars,
+                similarity_threshold=api_config.embedding.similarity_threshold,
+                event_judge=judge.same_event if judge.enabled else None,
+                max_judge_workers=api_config.pipeline.max_workers,
+            )
+            new_events = [event for event in changed_events if event.is_new]
+            ranked_hashes = llm.rank_new_events(new_events, limit=5)
+            rank_bonus = {event_hash: 6 - index for index, event_hash in enumerate(ranked_hashes, 1)}
+            for event in new_events:
+                event.score = 1 + rank_bonus.get(event.event_hash, 0)
+
         db.upsert_events(changed_events)
 
         events = db.get_events_with_articles_between(since, run_started_utc)

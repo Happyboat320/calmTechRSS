@@ -26,6 +26,26 @@ class ExistingCluster:
 ArticleVectorMap = dict[str, np.ndarray]
 
 
+def llm_cluster_articles(
+    articles: list[Article],
+    llm_client,
+    max_articles: int = 80,
+) -> list[Event]:
+    if not articles:
+        return []
+    limited = articles[:max_articles]
+    groups = llm_client.cluster_articles(limited)
+    if not groups:
+        return [make_event([article], is_new=True) for article in limited]
+    events = []
+    for group in groups:
+        group_articles = [limited[i] for i in group["article_indices"]]
+        event = make_event(group_articles, is_new=True)
+        event.score += max(0, 6 - group["importance"])
+        events.append(event)
+    return sorted(events, key=lambda event: event.score, reverse=True)
+
+
 def cluster_articles(
     articles: list[Article],
     embedding_model: str | None = None,

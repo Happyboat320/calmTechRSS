@@ -17,6 +17,7 @@ class LLMSettings:
     temperature: float = 0.2
     timeout_seconds: float = 180.0
     max_retries: int = 5
+    max_articles: int = 80
 
     @property
     def resolved_api_key(self) -> str:
@@ -89,6 +90,7 @@ def load_api_config(path: str | Path) -> ApiConfig:
         temperature=float(llm.get("temperature", 0.2)),
         timeout_seconds=float(llm.get("timeout_seconds", 180)),
         max_retries=max(1, int(llm.get("max_retries", 5))),
+        max_articles=max(1, int(llm.get("max_articles", 80))),
     )
     embedding_models = tuple(
         str(item)

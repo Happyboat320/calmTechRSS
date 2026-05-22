@@ -8,6 +8,7 @@ llm:
   temperature: 0.1
   timeout_seconds: 180
   max_retries: 5
+  max_articles: 80
 
 # 聚类判别模型。默认沿用 llm 的 base_url 和 api_key_env，只覆盖模型名。
 judge:

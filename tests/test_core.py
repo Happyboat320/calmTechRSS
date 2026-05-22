@@ -11,7 +11,7 @@ import numpy as np
 
 from calmtechrss.api_config import load_api_config
 from calmtechrss.api_config import LLMSettings
-from calmtechrss.cluster import ExistingCluster, cluster_text, incremental_cluster_articles, merge_new_articles
+from calmtechrss.cluster import ExistingCluster, cluster_text, incremental_cluster_articles, llm_cluster_articles, merge_new_articles
 from calmtechrss.config import load_sources
 from calmtechrss.db import Database
 from calmtechrss.export import write_clusters_json
@@ -434,6 +434,108 @@ class CoreTest(unittest.TestCase):
 
         self.assertEqual(event.articles[0].content, "")
         self.assertEqual(event.articles[0].summary, "A concise update about AI tooling.")
+
+    def test_llm_cluster_articles_groups_correctly(self) -> None:
+        class FakeLLM:
+            enabled = True
+
+            def cluster_articles(self, articles):
+                return [
+                    {"label": "AI tooling update", "importance": 1, "article_indices": [0, 1]},
+                    {"label": "Other news", "importance": 2, "article_indices": [2]},
+                ]
+
+        articles = [
+            Article(
+                title="AI tooling update",
+                url="https://example.com/a",
+                source_name="Example",
+                source_category="official",
+                published_at_utc=datetime.now(timezone.utc),
+                summary="A concise update about AI tooling.",
+                content="",
+                source_article_id="a",
+                url_hash="h1",
+                content_hash="c1",
+                source_weight=1.0,
+            ),
+            Article(
+                title="AI tooling update part 2",
+                url="https://example.com/b",
+                source_name="Example 2",
+                source_category="media",
+                published_at_utc=datetime.now(timezone.utc),
+                summary="Another update about AI tooling.",
+                content="",
+                source_article_id="b",
+                url_hash="h2",
+                content_hash="c2",
+                source_weight=1.0,
+            ),
+            Article(
+                title="Unrelated news",
+                url="https://example.com/c",
+                source_name="Example 3",
+                source_category="media",
+                published_at_utc=datetime.now(timezone.utc),
+                summary="Something else entirely.",
+                content="",
+                source_article_id="c",
+                url_hash="h3",
+                content_hash="c3",
+                source_weight=0.8,
+            ),
+        ]
+
+        events = llm_cluster_articles(articles, FakeLLM())
+
+        self.assertEqual(len(events), 2)
+        self.assertEqual(len(events[0].articles), 2)
+        self.assertEqual(len(events[1].articles), 1)
+        self.assertTrue(events[0].score > events[1].score)
+        self.assertTrue(all(e.is_new for e in events))
+
+    def test_llm_cluster_fallback_on_failure(self) -> None:
+        class FailingLLM:
+            enabled = True
+
+            def cluster_articles(self, articles):
+                return []
+
+        articles = [
+            Article(
+                title="Article A",
+                url="https://example.com/a",
+                source_name="Example",
+                source_category="official",
+                published_at_utc=datetime.now(timezone.utc),
+                summary="Summary A.",
+                content="",
+                source_article_id="a",
+                url_hash="h1",
+                content_hash="c1",
+                source_weight=1.0,
+            ),
+            Article(
+                title="Article B",
+                url="https://example.com/b",
+                source_name="Example 2",
+                source_category="media",
+                published_at_utc=datetime.now(timezone.utc),
+                summary="Summary B.",
+                content="",
+                source_article_id="b",
+                url_hash="h2",
+                content_hash="c2",
+                source_weight=1.0,
+            ),
+        ]
+
+        events = llm_cluster_articles(articles, FailingLLM())
+
+        self.assertEqual(len(events), 2)
+        self.assertEqual(len(events[0].articles), 1)
+        self.assertEqual(len(events[1].articles), 1)
 
 
 if __name__ == "__main__":
