@@ -116,11 +116,16 @@ def render_cluster_log(
             f'<span class="meta">{escape(article.source_name)}</span></li>'
             for article in event.articles
         )
+        heading = escape(event.label) if event.label else escape(event.event_hash[:12])
+        if event.label:
+            meta_line = f'<p class="meta">文章数：{len(event.articles)}</p>'
+        else:
+            meta_line = f'<p class="meta">最终分数：{event.score:.3f}；文章数：{len(event.articles)}</p>'
         rows.append(
             f"""
             <section>
-              <h2>{escape(event.event_hash[:12])} {' '.join(labels)}</h2>
-              <p class="meta">最终分数：{event.score:.3f}；文章数：{len(event.articles)}</p>
+              <h2>{heading} {' '.join(labels)}</h2>
+              {meta_line}
               <ul>{articles}</ul>
             </section>
             """

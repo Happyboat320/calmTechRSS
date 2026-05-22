@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS events (
   article_hashes_json TEXT NOT NULL,
   centroid_json TEXT NOT NULL DEFAULT '[]',
   score REAL NOT NULL,
+  label TEXT NOT NULL DEFAULT '',
   created_at_utc TEXT NOT NULL
 );
 
@@ -113,6 +114,8 @@ class Database:
         }
         if "centroid_json" not in event_columns:
             self.conn.execute("ALTER TABLE events ADD COLUMN centroid_json TEXT NOT NULL DEFAULT '[]'")
+        if "label" not in event_columns:
+            self.conn.execute("ALTER TABLE events ADD COLUMN label TEXT NOT NULL DEFAULT ''")
 
     def upsert_sources(self, sources: list[Source]) -> None:
         self.conn.executemany(
@@ -251,18 +254,20 @@ class Database:
             hashes = sorted(a.url_hash for a in event.articles)
             self.conn.execute(
                 """
-                INSERT INTO events (event_hash, article_hashes_json, centroid_json, score, created_at_utc)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO events (event_hash, article_hashes_json, centroid_json, score, label, created_at_utc)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(event_hash) DO UPDATE SET
                   article_hashes_json=excluded.article_hashes_json,
                   centroid_json=excluded.centroid_json,
-                  score=excluded.score
+                  score=excluded.score,
+                  label=CASE WHEN excluded.label != '' THEN excluded.label ELSE events.label END
                 """,
                 (
                     event.event_hash,
                     json.dumps(hashes),
                     json.dumps(event.centroid or []),
                     event.score,
+                    event.label,
                     utc_now(),
                 ),
             )
@@ -298,7 +303,7 @@ class Database:
     def get_events_with_recent_articles(self, since_utc: datetime) -> list[Event]:
         rows = self.conn.execute(
             """
-            SELECT DISTINCT e.event_hash, e.article_hashes_json, e.centroid_json, e.score, e.id
+            SELECT DISTINCT e.event_hash, e.article_hashes_json, e.centroid_json, e.score, e.label, e.id
             FROM events e
             JOIN event_articles ea ON ea.event_hash = e.event_hash
             JOIN articles a ON a.url_hash = ea.url_hash
@@ -316,6 +321,7 @@ class Database:
                 articles=self.get_articles_by_hashes(hashes),
                 score=float(row["score"]),
                 centroid=normalize_vectors_json(json.loads(row["centroid_json"])),
+                label=row["label"],
             )
             events.append(event)
         return events
@@ -327,7 +333,7 @@ class Database:
     ) -> list[Event]:
         rows = self.conn.execute(
             """
-            SELECT DISTINCT e.event_hash, e.article_hashes_json, e.centroid_json, e.score, e.id
+            SELECT DISTINCT e.event_hash, e.article_hashes_json, e.centroid_json, e.score, e.label, e.id
             FROM events e
             JOIN event_articles ea ON ea.event_hash = e.event_hash
             JOIN articles a ON a.url_hash = ea.url_hash
@@ -345,6 +351,7 @@ class Database:
                 articles=self.get_articles_by_hashes(hashes),
                 score=float(row["score"]),
                 centroid=normalize_vectors_json(json.loads(row["centroid_json"])),
+                label=row["label"],
             )
             events.append(event)
         return events
@@ -403,7 +410,7 @@ class Database:
     def get_event(self, event_hash: str) -> Event | None:
         row = self.conn.execute(
             """
-            SELECT event_hash, article_hashes_json, centroid_json, score, id
+            SELECT event_hash, article_hashes_json, centroid_json, score, label, id
             FROM events
             WHERE event_hash = ?
             """,
@@ -418,6 +425,7 @@ class Database:
             articles=self.get_articles_by_hashes(hashes),
             score=float(row["score"]),
             centroid=normalize_vectors_json(json.loads(row["centroid_json"])),
+            label=row["label"],
         )
 
     def get_rewrite(self, event_hash: str, prompt_version: str, model: str) -> Rewrite | None:

@@ -40,6 +40,7 @@ class Event:
     score: float = 0.0
     id: int | None = None
     centroid: dict[str, list[float]] | list[float] | None = None
+    label: str = ""
     is_new: bool = False
 
 

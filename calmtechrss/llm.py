@@ -22,7 +22,7 @@ class LLMClient:
     def enabled(self) -> bool:
         return self.settings.enabled and bool(self.api_key)
 
-    def cluster_articles(self, articles: list[Article]) -> list[dict]:
+    def cluster_articles(self, articles: list[Article], recent_labels: list[str] | None = None) -> list[dict]:
         if not self.enabled or not articles:
             return []
         catalog = []
@@ -35,6 +35,13 @@ class LLMClient:
                     "summary": truncate(article.summary, 500),
                 }
             )
+        skip_section = ""
+        if recent_labels:
+            skip_list = "\n".join(f"- {label}" for label in recent_labels)
+            skip_section = (
+                "\n\n以下事件近 3 天已报道过，请勿将文章归入这些事件，也不要生成与它们相同或高度相似的事件：\n"
+                + skip_list
+            )
         prompt = (
             "你是科技日报编辑。请将以下文章按报道的具体事件进行分组，"
             "每组是一个独立的科技新闻事件（同一事件的不同报道归为一组）。"
@@ -42,7 +49,10 @@ class LLMClient:
             "避免将 patch release、营销稿、重复列表页作为高优先级事件。"
             "返回严格 JSON，格式为：\n"
             '{"events": [{"label": "事件简述", "importance": 1, "article_indices": [0, 1]}]}\n'
-            "其中 importance 从 1 开始递增（1=最重要），article_indices 为文章在列表中的索引。\n\n"
+            "其中 importance 从 1 开始递增（1=最重要），article_indices 为文章在列表中的索引。"
+            "每个事件的 label 应为简短的中文事件标题（10-20 字）。"
+            + skip_section
+            + "\n\n"
             + json.dumps(catalog, ensure_ascii=False)
         )
         try:

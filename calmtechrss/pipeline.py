@@ -67,10 +67,18 @@ def run_pipeline(
         judge = EventJudgeClient(api_config.judge.resolved(api_config.llm))
 
         if llm.enabled:
+            recent_labels: list[str] = []
+            if os.getenv("GITHUB_EVENT_NAME") != "push":
+                rewrite_model = llm.model
+                for _, pairs in db.get_issue_entries(3, PROMPT_VERSION, rewrite_model):
+                    for _, rewrite in pairs:
+                        recent_labels.append(rewrite.title)
+                LOGGER.info("recent_labels=%s", len(recent_labels))
             changed_events = llm_cluster_articles(
                 candidates,
                 llm_client=llm,
                 max_articles=api_config.llm.max_articles,
+                recent_labels=recent_labels or None,
             )
             new_events = changed_events
         else:

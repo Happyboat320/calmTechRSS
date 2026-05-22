@@ -30,17 +30,18 @@ def llm_cluster_articles(
     articles: list[Article],
     llm_client,
     max_articles: int = 80,
+    recent_labels: list[str] | None = None,
 ) -> list[Event]:
     if not articles:
         return []
     limited = articles[:max_articles]
-    groups = llm_client.cluster_articles(limited)
+    groups = llm_client.cluster_articles(limited, recent_labels=recent_labels)
     if not groups:
         return [make_event([article], is_new=True) for article in limited]
     events = []
     for group in groups:
         group_articles = [limited[i] for i in group["article_indices"]]
-        event = make_event(group_articles, is_new=True)
+        event = make_event(group_articles, is_new=True, label=group.get("label", ""))
         event.score += max(0, 6 - group["importance"])
         events.append(event)
     return sorted(events, key=lambda event: event.score, reverse=True)
@@ -217,6 +218,7 @@ def make_event(
     centroid: np.ndarray | None = None,
     vectors: ArticleVectorMap | None = None,
     is_new: bool = False,
+    label: str = "",
 ) -> Event:
     hashes = sorted(article.url_hash for article in articles)
     event_hash = event_hash or sha256_text("\n".join(hashes))
@@ -235,6 +237,7 @@ def make_event(
         articles=articles,
         score=score,
         centroid=centroid_list,
+        label=label,
         is_new=is_new,
     )
 

@@ -17,6 +17,7 @@ def write_clusters_json(output_dir: str | Path, issue_date: str, events: list[Ev
         "events": [
             {
                 "event_hash": event.event_hash,
+                "label": event.label,
                 "score": round(event.score, 6),
                 "article_count": len(event.articles),
                 "is_new": event.is_new,

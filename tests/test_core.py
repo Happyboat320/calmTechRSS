@@ -182,6 +182,46 @@ class CoreTest(unittest.TestCase):
             self.assertIn("今日新增", log_html)
             self.assertIn("最终分数", log_html)
 
+    def test_cluster_log_shows_label_and_hides_score(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            event = make_event()
+            event.label = "AI 工具更新"
+            rewrite = fallback_rewrite(event)
+            output_dir = Path(temp_dir) / "site"
+            log_url = render_cluster_log(
+                output_dir,
+                "2026-05-18",
+                [event],
+                [event],
+                [event],
+                "https://example.com",
+                {"new_clusters": 1},
+            )
+            log_html = (output_dir / "issues" / "2026-05-18-log" / "index.html").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("AI 工具更新", log_html)
+            self.assertNotIn("最终分数", log_html)
+
+    def test_cluster_log_shows_score_when_no_label(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            event = make_event()
+            rewrite = fallback_rewrite(event)
+            output_dir = Path(temp_dir) / "site"
+            log_url = render_cluster_log(
+                output_dir,
+                "2026-05-18",
+                [event],
+                [event],
+                [event],
+                "https://example.com",
+                {"new_clusters": 1},
+            )
+            log_html = (output_dir / "issues" / "2026-05-18-log" / "index.html").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("最终分数", log_html)
+
     def test_article_paragraphs_formats_flat_text(self) -> None:
         paragraphs = article_paragraphs(
             "第一句话。第二句话。第三句话。"
@@ -247,6 +287,7 @@ class CoreTest(unittest.TestCase):
             self.assertEqual(payload["events"][0]["event_hash"], "e1")
             self.assertFalse(payload["events"][0]["is_new"])
             self.assertEqual(payload["events"][0]["titles"], ["AI tooling update"])
+            self.assertEqual(payload["events"][0]["label"], "")
 
     def test_incremental_cluster_assigns_to_existing_event(self) -> None:
         existing_article = make_event().articles[0]
@@ -439,10 +480,10 @@ class CoreTest(unittest.TestCase):
         class FakeLLM:
             enabled = True
 
-            def cluster_articles(self, articles):
+            def cluster_articles(self, articles, recent_labels=None):
                 return [
-                    {"label": "AI tooling update", "importance": 1, "article_indices": [0, 1]},
-                    {"label": "Other news", "importance": 2, "article_indices": [2]},
+                    {"label": "AI 工具更新", "importance": 1, "article_indices": [0, 1]},
+                    {"label": "其他新闻", "importance": 2, "article_indices": [2]},
                 ]
 
         articles = [
@@ -494,12 +535,47 @@ class CoreTest(unittest.TestCase):
         self.assertEqual(len(events[1].articles), 1)
         self.assertTrue(events[0].score > events[1].score)
         self.assertTrue(all(e.is_new for e in events))
+        self.assertEqual(events[0].label, "AI 工具更新")
+        self.assertEqual(events[1].label, "其他新闻")
+
+    def test_llm_cluster_passes_recent_labels(self) -> None:
+        class CapturingLLM:
+            enabled = True
+            captured_labels = None
+
+            def cluster_articles(self, articles, recent_labels=None):
+                CapturingLLM.captured_labels = recent_labels
+                return [{"label": "新事件", "importance": 1, "article_indices": [0]}]
+
+        articles = [
+            Article(
+                title="New article",
+                url="https://example.com/a",
+                source_name="Example",
+                source_category="official",
+                published_at_utc=datetime.now(timezone.utc),
+                summary="New summary.",
+                content="",
+                source_article_id="a",
+                url_hash="h1",
+                content_hash="c1",
+                source_weight=1.0,
+            ),
+        ]
+
+        llm_cluster_articles(
+            articles,
+            CapturingLLM(),
+            recent_labels=["已报道事件A", "已报道事件B"],
+        )
+
+        self.assertEqual(CapturingLLM.captured_labels, ["已报道事件A", "已报道事件B"])
 
     def test_llm_cluster_fallback_on_failure(self) -> None:
         class FailingLLM:
             enabled = True
 
-            def cluster_articles(self, articles):
+            def cluster_articles(self, articles, recent_labels=None):
                 return []
 
         articles = [
