@@ -7,8 +7,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from xml.etree import ElementTree as ET
 
-from .text import normalize_site_base_url
-
 if TYPE_CHECKING:
     from .models import Event, Rewrite
 
@@ -27,7 +25,7 @@ def generate_feed(
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     ET.register_namespace("content", CONTENT_NS)
-    base = normalize_site_base_url(site_base_url)
+    base = site_base_url.rstrip("/")
     issue_entries = issues or [(issue_date, selected or [])]
     rss = ET.Element("rss", version="2.0")
     channel = ET.SubElement(rss, "channel")

@@ -7,7 +7,6 @@ from pathlib import Path
 from jinja2 import Environment, PackageLoader, select_autoescape
 
 from .models import Event, Rewrite
-from .text import normalize_site_base_url
 
 
 def render_issue(
@@ -30,7 +29,7 @@ def render_issue(
         issue_date=issue_date,
         events=selected,
         generated_at=datetime.now(timezone.utc),
-        site_base_url=normalize_site_base_url(site_base_url),
+        site_base_url=site_base_url.rstrip("/"),
         original_links=original_links or {},
         log_url=log_url,
     )
@@ -48,7 +47,7 @@ def render_original_pages(
     output = Path(output_dir)
     issues_dir = output / "issues"
     issues_dir.mkdir(parents=True, exist_ok=True)
-    base = normalize_site_base_url(site_base_url)
+    base = site_base_url.rstrip("/")
     links: dict[str, str] = {}
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     for event, rewrite in selected:
@@ -100,7 +99,7 @@ def render_cluster_log(
     slug = f"{issue_date}-log"
     page_dir = output / "issues" / slug
     page_dir.mkdir(parents=True, exist_ok=True)
-    base = normalize_site_base_url(site_base_url)
+    base = site_base_url.rstrip("/")
     changed_hashes = {event.event_hash for event in changed_events}
     selected_hashes = {event.event_hash for event in selected_events}
     rows = []
@@ -170,7 +169,7 @@ def prune_issue_pages(output_dir: str | Path, keep: int = 5) -> None:
 def render_index(output_dir: str | Path, issue_date: str, site_base_url: str) -> str:
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
-    base = normalize_site_base_url(site_base_url)
+    base = site_base_url.rstrip("/")
     html = f"""<!doctype html>
 <html lang="zh-CN">
 <head>

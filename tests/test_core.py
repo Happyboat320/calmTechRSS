@@ -28,7 +28,6 @@ from calmtechrss.render import (
     prune_issue_pages,
 )
 from calmtechrss.rss import generate_feed, validate_feed
-from calmtechrss.text import normalize_site_base_url
 
 
 def make_event() -> Event:
@@ -141,20 +140,6 @@ class CoreTest(unittest.TestCase):
             self.assertTrue(Path(feed_path).exists())
             self.assertIn("AI tooling update", Path(feed_path).read_text(encoding="utf-8"))
             validate_feed(feed_path)
-
-    def test_site_base_url_defaults_missing_scheme_to_https(self) -> None:
-        self.assertEqual(
-            normalize_site_base_url("happyboat.site/calmTechRSS/"),
-            "https://happyboat.site/calmTechRSS",
-        )
-        with TemporaryDirectory() as temp_dir:
-            path = render_index(temp_dir, "2026-05-22", "happyboat.site/calmTechRSS")
-            html = Path(path).read_text(encoding="utf-8")
-
-        self.assertIn(
-            'href="https://happyboat.site/calmTechRSS/issues/2026-05-22.html"',
-            html,
-        )
 
     def test_original_pages_and_cluster_log_render(self) -> None:
         with TemporaryDirectory() as temp_dir:
