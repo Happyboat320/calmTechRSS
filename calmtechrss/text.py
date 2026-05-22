@@ -37,6 +37,15 @@ def clean_url(url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc.lower(), parts.path, parts.query, ""))
 
 
+def normalize_site_base_url(url: str) -> str:
+    url = url.strip().rstrip("/")
+    if url.startswith("//"):
+        return f"https:{url}"
+    if not urlsplit(url).scheme:
+        return f"https://{url}"
+    return url
+
+
 def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
@@ -57,4 +66,3 @@ def truncate(value: str, limit: int) -> str:
     if len(value) <= limit:
         return value
     return value[: limit - 1].rstrip() + "…"
-
